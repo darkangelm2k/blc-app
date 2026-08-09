@@ -22,7 +22,7 @@ function App() {
   const [mostrarModalExportar, setMostrarModalExportar] = useState(false)
   const [mesExportar, setMesExportar] = useState('todo')
   const [mostrarPlanilla, setMostrarPlanilla] = useState(false)
-  const [mesPlanilla, setMesPlanilla] = useState('Agosto 2026')
+  const [mesPlanilla, setMesPlanilla] = useState('2026-08')
 
   const [asistencia, setAsistencia] = useState({})
   const [notas, setNotas] = useState({}) 
@@ -34,6 +34,7 @@ function App() {
   const [profesores, setProfesores] = useState([])
   const [clasesFirebase, setClasesFirebase] = useState([]) 
   const [registrosFirebase, setRegistrosFirebase] = useState([]) 
+  const [pagosFirebase, setPagosFirebase] = useState([]) // NUEVO: Estado para pagos
   
   const [vistaAdmin, setVistaAdmin] = useState(false)
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false)
@@ -59,20 +60,26 @@ function App() {
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
   const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false)
 
+  // NUEVO: Estados para registrar pagos
+  const [nuevoPagoAlumno, setNuevoPagoAlumno] = useState('')
+  const [nuevoPagoMonto, setNuevoPagoMonto] = useState('')
+  const [nuevoPagoMes, setNuevoPagoMes] = useState('2026-08')
+  const [mesFinanzas, setMesFinanzas] = useState('2026-08')
+
   useEffect(() => {
     const cargarDatos = async () => {
       try {
         const profesSnap = await getDocs(collection(db, "profesores"));
-        const profesArr = profesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setProfesores(profesArr);
+        setProfesores(profesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
         const clasesSnap = await getDocs(collection(db, "clases"));
-        const clasesArr = clasesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setClasesFirebase(clasesArr);
+        setClasesFirebase(clasesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
         const regSnap = await getDocs(collection(db, "registrosClases"));
-        const regArr = regSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setRegistrosFirebase(regArr);
+        setRegistrosFirebase(regSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+        const pagosSnap = await getDocs(collection(db, "pagos"));
+        setPagosFirebase(pagosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } catch (error) {
         console.error("Error al cargar datos:", error);
       }
@@ -80,12 +87,12 @@ function App() {
     if(accesoGlobal) cargarDatos();
   }, [accesoGlobal, mensajeExito]); 
 
-  // Función matemática inteligente: Divide solo entre los skills llenados
+  // Generar lista única de todos los alumnos inscritos en todas las clases
+  const todosLosAlumnos = Array.from(new Set(clasesFirebase.flatMap(c => c.estudiantes || []))).sort();
+
   const getPromedio = (notasDato) => {
     if (!notasDato) return '--';
     if (typeof notasDato === 'string' || typeof notasDato === 'number') return parseFloat(notasDato).toFixed(1);
-    
-    // Ignoramos los vacíos y sumamos solo los números válidos
     const vals = Object.values(notasDato).map(Number).filter(n => !isNaN(n) && n > 0);
     return vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '--';
   }
@@ -116,9 +123,9 @@ function App() {
 
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
-    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado.nombre}`, `Periodo: ${mesPlanilla}`, `Centro: Boss Language Center SAC`]);
-    let mesPrefix = ""; if (mesPlanilla === "Agosto 2026") mesPrefix = "2026-08"; else if (mesPlanilla === "Julio 2026") mesPrefix = "2026-07";
-    const registrosMes = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix)));
+    const nombreMes = mesPlanilla === "2026-08" ? "Agosto 2026" : "Julio 2026";
+    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado.nombre}`, `Periodo: ${nombreMes}`, `Centro: Boss Language Center SAC`]);
+    const registrosMes = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPlanilla === "" || reg.fecha?.startsWith(mesPlanilla)));
     let totalPagar = 0;
     const tableData = registrosMes.map(reg => {
       const monto = (reg.horas || 0) * (reg.tarifa || 0); totalPagar += monto;
@@ -127,7 +134,7 @@ function App() {
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Horas Impartidas', 'Tarifa/Hora', 'Subtotal']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 }});
     doc.setFontSize(16); doc.setTextColor(5, 150, 105); doc.text(`Total a Facturar: S/. ${totalPagar.toFixed(2)}`, 14, doc.lastAutoTable.finalY + 15);
     doc.setFontSize(10); doc.setTextColor(75, 85, 99); doc.text("Instrucciones: Emitir el Recibo por Honorarios a Boss Language Center SAC (RUC: 20603806795).", 14, doc.lastAutoTable.finalY + 25);
-    doc.save(`Planilla_${profesorSeleccionado.nombre}_${mesPlanilla.replace(' ', '_')}.pdf`);
+    doc.save(`Planilla_${profesorSeleccionado.nombre}_${nombreMes.replace(' ', '_')}.pdf`);
     setMostrarPlanilla(false); setMensajeExito('¡Planilla generada exitosamente! 💰✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
@@ -229,6 +236,9 @@ function App() {
     setMensajeExito('¡Excel exportado correctamente! 📈✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
+  // ===============================================
+  // CÁLCULOS PARA DASHBOARDS (Alumnos, Profes y Finanzas)
+  // ===============================================
   const calcularMetricas = () => {
     const statsAlumnos = {};
     registrosFirebase.forEach(reg => {
@@ -287,6 +297,30 @@ function App() {
     }).sort((a, b) => b.horasTotales - a.horasTotales); 
   }
 
+  const calcularFinanzas = () => {
+    let ingresos = 0;
+    let egresos = 0;
+
+    // Sumar ingresos (Pagos de alumnos del mes)
+    pagosFirebase.forEach(pago => {
+      if (mesFinanzas === 'todo' || pago.mes === mesFinanzas) {
+        ingresos += Number(pago.monto || 0);
+      }
+    });
+
+    // Sumar egresos (Horas trabajadas * tarifa en el mes)
+    registrosFirebase.forEach(reg => {
+      if (mesFinanzas === 'todo' || reg.fecha?.startsWith(mesFinanzas)) {
+        egresos += (Number(reg.horas || 0) * Number(reg.tarifa || 0));
+      }
+    });
+
+    return { ingresos, egresos, balance: ingresos - egresos };
+  }
+
+  // ===============================================
+  // FUNCIONES DE GUARDADO (FIREBASE)
+  // ===============================================
   const handleToggleActivoProfesor = async (id, estadoActual) => {
     try {
       const profRef = doc(db, "profesores", id); await updateDoc(profRef, { activo: !estadoActual });
@@ -326,6 +360,24 @@ function App() {
       });
       setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setNuevaClaseEstudiantes(''); setNuevaClaseProfesorId('');
       setMensajeExito('Clase creada ✅'); setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
+  }
+
+  // NUEVO: GUARDAR PAGO
+  const handleAgregarPago = async (e) => {
+    e.preventDefault();
+    if (!nuevoPagoAlumno || !nuevoPagoMonto || !nuevoPagoMes) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); return;
+    }
+    try {
+      await addDoc(collection(db, "pagos"), {
+        alumno: nuevoPagoAlumno,
+        monto: Number(nuevoPagoMonto),
+        mes: nuevoPagoMes,
+        fechaRegistro: new Date().toISOString()
+      });
+      setNuevoPagoAlumno(''); setNuevoPagoMonto('');
+      setMensajeExito('Pago registrado en el sistema 💰✅'); setTimeout(() => setMensajeExito(''), 3000);
     } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
@@ -383,8 +435,6 @@ function App() {
     claseSeleccionada.estudiantes.forEach(estudiante => { 
       const ast = asistencia[estudiante];
       if (!ast) formularioCompleto = false;
-      
-      // NUEVA REGLA: Si asistio, basta con que haya llenado AL MENOS UN skill.
       if (ast === 'asistio') {
         const n = notas[estudiante];
         if (!n || (!n.oral && !n.grammar && !n.reading && !n.listening && !n.writing)) {
@@ -470,6 +520,7 @@ function App() {
 
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
+    const finanzas = calcularFinanzas();
 
     return (
       <>
@@ -486,12 +537,15 @@ function App() {
               <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#6b7280' }}>Centro de Operaciones</p>
             </div>
             
-            <div style={{ padding: '20px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ padding: '20px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto' }}>
               <button className={`admin-menu-btn ${adminTab === 'reportes' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('reportes')}>
                 <span style={{ fontSize: '20px' }}>📈</span> Reportes Alumnos
               </button>
               <button className={`admin-menu-btn ${adminTab === 'rendimiento' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('rendimiento')}>
                 <span style={{ fontSize: '20px' }}>👨‍🏫</span> Rendimiento Docente
+              </button>
+              <button className={`admin-menu-btn ${adminTab === 'finanzas' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('finanzas')}>
+                <span style={{ fontSize: '20px' }}>💰</span> Finanzas y Pagos
               </button>
               <button className={`admin-menu-btn ${adminTab === 'clases' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('clases')}>
                 <span style={{ fontSize: '20px' }}>📚</span> Gestión de Clases
@@ -650,6 +704,98 @@ function App() {
                 </div>
               )}
 
+              {/* ==================================================== */}
+              {/* PESTAÑA NUEVA: FINANZAS Y PAGOS */}
+              {/* ==================================================== */}
+              {adminTab === 'finanzas' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
+                  
+                  {/* Tarjetas de Resumen Financiero */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero</h2>
+                    <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
+                      <option value="todo">Historial Completo</option>
+                      <option value="2026-08">Agosto 2026</option>
+                      <option value="2026-07">Julio 2026</option>
+                      <option value="2026-06">Junio 2026</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #10b981' }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#6b7280', textTransform: 'uppercase' }}>Ingresos Mensualidades</p>
+                      <h3 style={{ margin: 0, fontSize: '28px', color: '#111827' }}>S/. {finanzas.ingresos.toFixed(2)}</h3>
+                    </div>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #ef4444' }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#6b7280', textTransform: 'uppercase' }}>Pago Profesores (Nómina)</p>
+                      <h3 style={{ margin: 0, fontSize: '28px', color: '#111827' }}>S/. {finanzas.egresos.toFixed(2)}</h3>
+                    </div>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: `6px solid ${finanzas.balance >= 0 ? '#3b82f6' : '#f97316'}` }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#6b7280', textTransform: 'uppercase' }}>Balance Neto</p>
+                      <h3 style={{ margin: 0, fontSize: '28px', color: finanzas.balance >= 0 ? '#1d4ed8' : '#c2410c' }}>S/. {finanzas.balance.toFixed(2)}</h3>
+                    </div>
+                  </div>
+
+                  {/* Panel de registro y tabla */}
+                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    
+                    {/* Formulario Izquierdo */}
+                    <div style={{ flex: '1 1 300px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Pago</h2>
+                      <form onSubmit={handleAgregarPago} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Alumno</label>
+                          <select value={nuevoPagoAlumno} onChange={(e) => setNuevoPagoAlumno(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="">-- Seleccionar --</option>
+                            {todosLosAlumnos.map((alum, idx) => (
+                              <option key={idx} value={alum}>{alum}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Monto Pagado (S/.)</label>
+                          <input type="number" placeholder="Ej: 150" value={nuevoPagoMonto} onChange={(e) => setNuevoPagoMonto(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes correspondiente</label>
+                          <select value={nuevoPagoMes} onChange={(e) => setNuevoPagoMes(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="2026-08">Agosto 2026</option>
+                            <option value="2026-07">Julio 2026</option>
+                            <option value="2026-06">Junio 2026</option>
+                          </select>
+                        </div>
+                        <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '5px' }}>Registrar Ingreso</button>
+                      </form>
+                    </div>
+
+                    {/* Historial Derecho */}
+                    <div style={{ flex: '2 1 400px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Pagos ({mesFinanzas === 'todo' ? 'General' : mesFinanzas})</h2>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
+                        {pagosFirebase.filter(p => mesFinanzas === 'todo' || p.mes === mesFinanzas)
+                                      .sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro))
+                                      .map((pago, idx) => (
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{pago.alumno}</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>Reg: {new Date(pago.fechaRegistro).toLocaleDateString()}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                              <span style={{ fontSize: '12px', color: '#6b7280', backgroundColor: '#e5e7eb', padding: '4px 8px', borderRadius: '6px' }}>Mes: {pago.mes}</span>
+                              <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>+ S/. {pago.monto.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {pagosFirebase.filter(p => mesFinanzas === 'todo' || p.mes === mesFinanzas).length === 0 && (
+                           <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center', marginTop: '20px' }}>No hay ingresos registrados en este periodo.</p>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
               {adminTab === 'clases' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -735,7 +881,9 @@ function App() {
 
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👥 Personal Registrado</h2>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
+                      
+                      {/* SE HA CORREGIDO ESTE DIV PARA QUE NO SE ENCIERRE EN UN SCROLL INTERNO */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {profesores.map(prof => (
                           <div key={prof.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: prof.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
