@@ -132,7 +132,6 @@ function App() {
   // GENERADORES DE DOCUMENTOS OFICIALES
   // ==========================================
 
-  // 1. PDF DEL RESUMEN DE PAGO (PLANILLA)
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
     
@@ -180,7 +179,6 @@ function App() {
     setTimeout(() => setMensajeExito(''), 4000);
   }
 
-  // 2. PDF DE REPORTE DE CLASE (PROFESOR)
   const generarPDFReporteClase = async () => {
     const doc = new jsPDF();
     
@@ -232,28 +230,44 @@ function App() {
     setTimeout(() => setMensajeExito(''), 4000);
   }
 
-  // 3. PDF DEL PANEL ADMINISTRATIVO (EXPEDIENTE DEFINITIVO UNIFICADO 100%)
   const generarPDFAdmin = async (resultados) => {
     if(resultados.length === 0) return;
     const doc = new jsPDF();
     
     let periodoStr = mesFiltroBusqueda === 'todo' ? 'Historial Completo' : mesFiltroBusqueda;
-    
-    // Extraemos la información del registro más reciente para el encabezado
-    const claseRef = resultados[0].clase || '--';
-    const profesorRef = resultados[0].profesor || '--';
-    const claseEnBD = clasesFirebase.find(c => c.titulo === claseRef);
-    const nivelReal = resultados[0].nivel || (claseEnBD ? claseEnBD.curso : '--');
+    let tituloPDF = "";
+    let subtitulos = [];
 
-    const tituloPDF = tipoBusqueda === 'alumno' ? "Expediente Académico del Alumno" : "Reporte Académico de Grupo";
+    if (tipoBusqueda === 'alumno') {
+      tituloPDF = "Expediente Académico del Alumno";
+      let nombreMayus = terminoBusqueda ? terminoBusqueda.toUpperCase() : 'General';
+      subtitulos = [
+        `Alumno: ${nombreMayus}`,
+        `Generado por: Coordinación Académica`,
+        `Periodo: ${periodoStr}`
+      ];
+    } else if (tipoBusqueda === 'profesor') {
+      tituloPDF = "Expediente del Profesor";
+      let profMayus = terminoBusqueda ? terminoBusqueda.toUpperCase() : 'General';
+      subtitulos = [
+        `Profesor: ${profMayus}`,
+        `Generado por: Coordinación Académica`,
+        `Periodo: ${periodoStr}`
+      ];
+    } else {
+      tituloPDF = "Reporte Académico de Grupo";
+      const claseRef = resultados[0].clase || '--';
+      const profesorRef = resultados[0].profesor || '--';
+      const claseEnBD = clasesFirebase.find(c => c.titulo === claseRef);
+      const nivelReal = resultados[0].nivel || (claseEnBD ? claseEnBD.curso : '--');
 
-    // EXACTAMENTE el mismo encabezado que el del profesor
-    const subtitulos = [
-      `Clase: ${claseRef}`,
-      `Nivel Actual: ${nivelReal}`,
-      `Profesor a cargo: ${profesorRef}`,
-      `Periodo: ${periodoStr}`
-    ];
+      subtitulos = [
+        `Clase: ${claseRef}`,
+        `Nivel Actual: ${nivelReal}`,
+        `Profesor a cargo: ${profesorRef}`,
+        `Periodo: ${periodoStr}`
+      ];
+    }
 
     const startY = await agregarEncabezadoPDF(doc, tituloPDF, subtitulos);
     
@@ -271,7 +285,6 @@ function App() {
       alumnosAMostrar.forEach(alum => {
          const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
          
-         // EXACTAMENTE las mismas 5 columnas que el del profesor
          tableData.push([
            reg.fecha || '--',
            alum || '--',
@@ -284,7 +297,7 @@ function App() {
 
     autoTable(doc, {
       startY: startY,
-      head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], // Sin Clase/Nivel ni Profesor
+      head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], 
       body: tableData,
       theme: 'grid',
       headStyles: { fillColor: [37, 99, 235] },
@@ -296,32 +309,35 @@ function App() {
     setTimeout(() => setMensajeExito(''), 4000);
   }
 
+
   // ==========================================
-  // BUSCADOR INTELIGENTE (ALUMNO O CLASE)
+  // FUNCIONES DE GESTIÓN (DAR DE BAJA PROFESORES Y CLASES)
   // ==========================================
-  const resultadosBusqueda = registrosFirebase.filter(reg => {
-    if (terminoBusqueda.trim() === '') return false;
-    
-    if (tipoBusqueda === 'alumno') {
-      const nombresAlumnos = Object.keys(reg.asistencia || {});
-      const alumnoEncontrado = nombresAlumnos.find(nombre => nombre.toLowerCase().includes(terminoBusqueda.toLowerCase()));
-      if (!alumnoEncontrado) return false;
-    } else if (tipoBusqueda === 'clase') {
-      const matchClase = reg.clase && reg.clase.toLowerCase().includes(terminoBusqueda.toLowerCase());
-      if (!matchClase) return false;
+  
+  const handleToggleActivoProfesor = async (id, estadoActual) => {
+    try {
+      const profRef = doc(db, "profesores", id);
+      await updateDoc(profRef, { activo: !estadoActual });
+      setProfesores(profesores.map(p => p.id === id ? { ...p, activo: !estadoActual } : p));
+      setMensajeExito(!estadoActual ? '¡Profesor reactivado con éxito! 🔓' : 'Profesor dado de baja (Oculto) 🔒');
+      setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
     }
+  }
 
-    if (mesFiltroBusqueda !== 'todo') {
-        const mesRegistro = reg.fecha?.substring(0, 7);
-        if (mesRegistro !== mesFiltroBusqueda) return false;
+  const handleToggleArchivarClase = async (id, estadoActual) => {
+    try {
+      const claseRef = doc(db, "clases", id);
+      await updateDoc(claseRef, { archivada: !estadoActual });
+      setClasesFirebase(clasesFirebase.map(c => c.id === id ? { ...c, archivada: !estadoActual } : c));
+      setMensajeExito(estadoActual ? 'Clase reactivada a la vista 📖' : 'Clase archivada correctamente 🗂️');
+      setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
     }
-    return true;
-  }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  }
 
-
-  // ==========================================
-  // FUNCIONES BÁSICAS DE GUARDADO Y UI
-  // ==========================================
   const handleAgregarProfesor = async (e) => {
     e.preventDefault();
     if (nombreNuevoProfesor.trim() === '') return;
@@ -345,7 +361,8 @@ function App() {
     try {
       await addDoc(collection(db, "clases"), {
         titulo: nuevaClaseTitulo, curso: nuevaClaseCurso, tarifa: Number(nuevaClaseTarifa),
-        dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: listaEstudiantes, profesorId: nuevaClaseProfesorId
+        dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: listaEstudiantes, profesorId: nuevaClaseProfesorId,
+        archivada: false
       });
       setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setNuevaClaseEstudiantes(''); setNuevaClaseProfesorId('');
       setMensajeExito('Clase creada y asignada correctamente 📚✅');
@@ -370,11 +387,37 @@ function App() {
     }
   }
 
+  // ==========================================
+  // BUSCADOR INTELIGENTE Y CÁLCULOS
+  // ==========================================
+  const resultadosBusqueda = registrosFirebase.filter(reg => {
+    if (terminoBusqueda.trim() === '') return false;
+    
+    if (tipoBusqueda === 'alumno') {
+      const nombresAlumnos = Object.keys(reg.asistencia || {});
+      const alumnoEncontrado = nombresAlumnos.find(nombre => nombre.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+      if (!alumnoEncontrado) return false;
+    } else if (tipoBusqueda === 'clase') {
+      const matchClase = reg.clase && reg.clase.toLowerCase().includes(terminoBusqueda.toLowerCase());
+      if (!matchClase) return false;
+    } else if (tipoBusqueda === 'profesor') {
+      const matchProfesor = reg.profesor && reg.profesor.toLowerCase().includes(terminoBusqueda.toLowerCase());
+      if (!matchProfesor) return false;
+    }
+
+    if (mesFiltroBusqueda !== 'todo') {
+        const mesRegistro = reg.fecha?.substring(0, 7);
+        if (mesRegistro !== mesFiltroBusqueda) return false;
+    }
+    return true;
+  }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+  // Las clases del profesor SOLO muestran las que no están archivadas
   const misClases = profesorSeleccionado 
-    ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id) 
+    ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) 
     : [];
 
-  const profesoresActivos = profesores.filter(profesor => profesor.activo === true)
+  const profesoresActivos = profesores.filter(profesor => profesor.activo !== false)
 
   useEffect(() => {
     setAsistencia({})
@@ -566,11 +609,20 @@ function App() {
 
               <div style={{ marginTop: '20px' }}>
                 <h3 style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 10px 0' }}>Profesores en Base de Datos:</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '150px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '5px' }}>
                   {profesores.map(prof => (
-                    <div key={prof.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                      <div className="avatar" style={{ backgroundColor: prof.color, width: '28px', height: '28px', fontSize: '12px' }}>{prof.nombre.charAt(0)}</div>
-                      <span style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>{prof.nombre}</span>
+                    <div key={prof.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: prof.activo !== false ? 1 : 0.5 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div className="avatar" style={{ backgroundColor: prof.activo !== false ? prof.color : '#9ca3af', width: '28px', height: '28px', fontSize: '12px' }}>{prof.nombre.charAt(0)}</div>
+                        <span style={{ fontSize: '13px', fontWeight: '500', color: prof.activo !== false ? '#374151' : '#9ca3af', textDecoration: prof.activo !== false ? 'none' : 'line-through' }}>{prof.nombre}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleToggleActivoProfesor(prof.id, prof.activo !== false)}
+                        className="btn-flotante"
+                        style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', color: prof.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}
+                      >
+                        {prof.activo !== false ? 'Dar de baja' : 'Reactivar'}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -625,6 +677,28 @@ function App() {
 
                 <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '10px' }}>Crear y Asignar Clase</button>
               </form>
+
+              <div style={{ marginTop: '20px' }}>
+                <h3 style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 10px 0' }}>Clases Activas / Archivadas:</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '5px' }}>
+                  {clasesFirebase.map(clase => (
+                    <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.5 : 1 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '14px', fontWeight: '600', color: clase.archivada ? '#9ca3af' : '#374151' }}>{clase.titulo}</span>
+                        <span style={{ fontSize: '11px', color: '#6b7280' }}>{clase.curso}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)}
+                        className="btn-flotante"
+                        style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '11px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}
+                      >
+                        {clase.archivada ? 'Desarchivar' : 'Archivar'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
             </div>
 
             <div style={{ flex: '1 1 100%', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginTop: '10px' }}>
@@ -639,11 +713,12 @@ function App() {
                 >
                   <option value="alumno">👤 Alumno</option>
                   <option value="clase">📚 Grupo / Empresa</option>
+                  <option value="profesor">👨‍🏫 Profesor</option>
                 </select>
 
                 <input 
                   type="text" 
-                  placeholder={tipoBusqueda === 'alumno' ? "Ej: Ana Castillo..." : "Ej: Avanzado..."}
+                  placeholder={tipoBusqueda === 'alumno' ? "Ej: Ana Castillo..." : tipoBusqueda === 'clase' ? "Ej: Avanzado..." : "Ej: Michael Montero..."}
                   value={terminoBusqueda} 
                   onChange={(e) => setTerminoBusqueda(e.target.value)} 
                   className="input-flotante" 
@@ -674,7 +749,7 @@ function App() {
                 {terminoBusqueda.trim() === '' ? (
                   <div style={{ padding: '30px', textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
                     <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
-                      Escribe el nombre de un {tipoBusqueda === 'alumno' ? 'alumno' : 'grupo'} en la barra de búsqueda para extraer su historial completo.
+                      Escribe el nombre de un {tipoBusqueda === 'alumno' ? 'alumno' : tipoBusqueda === 'clase' ? 'grupo' : 'profesor'} en la barra de búsqueda para extraer su historial completo.
                     </p>
                   </div>
                 ) : resultadosBusqueda.length === 0 ? (
@@ -748,6 +823,25 @@ function App() {
       reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla))
     );
     const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
+
+    // CÁLCULO DEL PROMEDIO GENERAL DE LA CLASE
+    let totalNotas = 0;
+    let countNotas = 0;
+    if (claseSeleccionada) {
+      const registrosDeEstaClase = registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo);
+      registrosDeEstaClase.forEach(reg => {
+        if (reg.notas) {
+          Object.values(reg.notas).forEach(nota => {
+            const val = parseFloat(nota);
+            if (!isNaN(val)) {
+              totalNotas += val;
+              countNotas++;
+            }
+          });
+        }
+      });
+    }
+    const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
 
     return (
       <>
@@ -890,6 +984,9 @@ function App() {
                         <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Editar Nivel del Grupo">
                           ✏️
                         </button>
+                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>
+                          📈 Promedio Histórico: {promedioGrupo}
+                        </span>
                       </>
                     )}
                   </div>
