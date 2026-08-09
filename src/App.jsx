@@ -25,7 +25,7 @@ function App() {
   const [mesPlanilla, setMesPlanilla] = useState('Agosto 2026')
 
   const [asistencia, setAsistencia] = useState({})
-  const [notas, setNotas] = useState({})
+  const [notas, setNotas] = useState({}) 
   const [obsIndividual, setObsIndividual] = useState({})
   const [fechaClase, setFechaClase] = useState('')
   const [horasClase, setHorasClase] = useState('')
@@ -40,7 +40,6 @@ function App() {
   const [claveAdminInput, setClaveAdminInput] = useState('')
   const [errorAdminPin, setErrorAdminPin] = useState(false)
 
-  // NUEVO ESTADO PARA EL MENÚ LATERAL DEL ADMIN
   const [adminTab, setAdminTab] = useState('reportes')
 
   const [nombreNuevoProfesor, setNombreNuevoProfesor] = useState('')
@@ -81,6 +80,23 @@ function App() {
     if(accesoGlobal) cargarDatos();
   }, [accesoGlobal, mensajeExito]); 
 
+  // ====================================================
+  // NUEVO: FUNCION COMPATIBLE PARA CALCULAR PROMEDIOS DE SKILLS
+  // ====================================================
+  const getPromedio = (notasDato) => {
+    if (!notasDato) return '--';
+    if (typeof notasDato === 'string' || typeof notasDato === 'number') return parseFloat(notasDato).toFixed(1);
+    
+    const vals = Object.values(notasDato).map(Number).filter(n => !isNaN(n));
+    return vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '--';
+  }
+
+  const formatNotasStr = (n) => {
+    if (!n) return '--';
+    if (typeof n === 'string' || typeof n === 'number') return n;
+    const prom = getPromedio(n);
+    return `${prom} (O:${n.oral||'-'} G:${n.grammar||'-'} R:${n.reading||'-'} L:${n.listening||'-'} W:${n.writing||'-'})`;
+  }
 
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
@@ -126,11 +142,13 @@ function App() {
     registrosFiltrados.forEach(reg => {
       const estudiantes = Object.keys(reg.asistencia || {});
       estudiantes.forEach(est => {
+        const estado = reg.asistencia[est];
         const observacion = reg.observacionesIndividuales?.[est] || reg.observacionGeneral || '--';
-        tableData.push([reg.fecha || '--', est, (reg.asistencia[est] || '--').replace('-', ' '), reg.notas[est] || '--', observacion]);
+        const notaCol = estado === 'asistio' ? formatNotasStr(reg.notas?.[est]) : '--';
+        tableData.push([reg.fecha || '--', est, (estado || '--').replace('-', ' '), notaCol, observacion]);
       });
     });
-    autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 }});
+    autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
     doc.save(`Reporte_${claseSeleccionada.titulo}.pdf`);
     setMostrarModalExportar(false); setMensajeExito('¡Reporte exportado con éxito! 📄✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
@@ -163,18 +181,20 @@ function App() {
          if (match) alumnosAMostrar = [match];
       }
       alumnosAMostrar.forEach(alum => {
+         const estado = reg.asistencia?.[alum];
          const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
-         tableData.push([reg.fecha || '--', alum || '--', (reg.asistencia?.[alum] || '--').replace('-', ' '), reg.notas?.[alum] || '--', observacion]);
+         const notaCol = estado === 'asistio' ? formatNotasStr(reg.notas?.[alum]) : '--';
+         tableData.push([reg.fecha || '--', alum || '--', (estado || '--').replace('-', ' '), notaCol, observacion]);
       });
     });
-    autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 } });
+    autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 } });
     doc.save(`Reporte_Admin_${terminoBusqueda || 'BLC'}.pdf`);
     setMensajeExito('¡Reporte exportado con formato estándar! 📊✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
   const generarExcelAdmin = (resultados) => {
     if(resultados.length === 0) return;
-    let csvContent = "Fecha,Alumno,Clase/Nivel,Profesor,Asistencia,Nota,Observaciones\n";
+    let csvContent = "Fecha,Alumno,Clase/Nivel,Profesor,Asistencia,Oral,Grammar,Reading,Listening,Writing,Promedio Diario,Observaciones\n";
     resultados.forEach(reg => {
       const nombres = Object.keys(reg.asistencia || {});
       let alumnosAMostrar = nombres;
@@ -184,11 +204,23 @@ function App() {
       }
       alumnosAMostrar.forEach(alum => {
          const estado = (reg.asistencia?.[alum] || '--').replace('-', ' ');
-         const nota = reg.notas?.[alum] || '--';
          const obs = (reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); 
          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
-         csvContent += `${reg.fecha || '--'},${alum},${reg.clase} (${nivelReal}),${reg.profesor},${estado},${nota},${obs}\n`;
+         
+         const n = reg.notas?.[alum];
+         let o='--', g='--', r='--', l='--', w='--', prom='--';
+         
+         if (estado === 'asistio') {
+           if (typeof n === 'object' && n !== null) {
+              o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--';
+              prom = getPromedio(n);
+           } else if (n) {
+              prom = parseFloat(n).toFixed(1);
+           }
+         }
+
+         csvContent += `${reg.fecha || '--'},${alum},${reg.clase} (${nivelReal}),${reg.profesor},${estado},${o},${g},${r},${l},${w},${prom},${obs}\n`;
       });
     });
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
@@ -206,8 +238,11 @@ function App() {
         if(!statsAlumnos[est]) statsAlumnos[est] = { faltas: 0, asistencias: 0, notasSum: 0, notasCount: 0 };
         if(reg.asistencia[est] === 'no-asistio') statsAlumnos[est].faltas++;
         else if(reg.asistencia[est] === 'asistio') statsAlumnos[est].asistencias++;
-        const nota = parseFloat(reg.notas?.[est]);
-        if(!isNaN(nota)) { statsAlumnos[est].notasSum += nota; statsAlumnos[est].notasCount++; }
+        
+        if (reg.asistencia[est] === 'asistio') {
+          const prom = parseFloat(getPromedio(reg.notas?.[est]));
+          if(!isNaN(prom)) { statsAlumnos[est].notasSum += prom; statsAlumnos[est].notasCount++; }
+        }
       });
     });
     const arrAlumnos = Object.keys(statsAlumnos).map(nombre => ({
@@ -239,8 +274,10 @@ function App() {
           statsProfesores[profNombre].totalRegistrosAsistencia++;
           if (estado === 'asistio') { statsProfesores[profNombre].totalAsistencias++; }
         }
-        const nota = parseFloat(reg.notas?.[est]);
-        if (!isNaN(nota)) { statsProfesores[profNombre].sumaNotas += nota; statsProfesores[profNombre].cantidadNotas++; }
+        if (estado === 'asistio') {
+          const prom = parseFloat(getPromedio(reg.notas?.[est]));
+          if (!isNaN(prom)) { statsProfesores[profNombre].sumaNotas += prom; statsProfesores[profNombre].cantidadNotas++; }
+        }
       });
     });
     return Object.keys(statsProfesores).map(nombre => {
@@ -343,7 +380,18 @@ function App() {
   const handleGuardarRegistro = async () => {
     let formularioCompleto = true
     if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false
-    claseSeleccionada.estudiantes.forEach(estudiante => { if (!asistencia[estudiante] || !notas[estudiante] || notas[estudiante].trim() === '') { formularioCompleto = false } })
+    claseSeleccionada.estudiantes.forEach(estudiante => { 
+      const ast = asistencia[estudiante];
+      if (!ast) formularioCompleto = false;
+      // VALIDACION DE LAS 5 SKILLS SOLO SI ASISTIO
+      if (ast === 'asistio') {
+        const n = notas[estudiante];
+        if (!n || !n.oral || !n.grammar || !n.reading || !n.listening || !n.writing) {
+          formularioCompleto = false;
+        }
+      }
+    })
+    
     if (formularioCompleto) {
       try {
         await addDoc(collection(db, "registrosClases"), {
@@ -384,7 +432,6 @@ function App() {
       @keyframes aparecerFade { from { opacity: 0; transform: scale(0.95) translate(-50%, -50%); } to { opacity: 1; transform: scale(1) translate(-50%, -50%); } }
       @keyframes vibrar { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
       
-      /* Estilos para el sidebar admin */
       .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; border-radius: 10px; border: none; cursor: pointer; font-size: 15px; font-weight: 500; text-align: left; transition: all 0.2s ease; }
       .admin-menu-btn:hover { background-color: #f3f4f6; }
       .admin-menu-btn.active { background-color: #eff6ff; color: #2563eb; }
@@ -420,9 +467,6 @@ function App() {
     )
   }
 
-  // ====================================================
-  // NUEVA VISTA ADMIN TIPO DASHBOARD (MENU LATERAL)
-  // ====================================================
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
 
@@ -434,7 +478,6 @@ function App() {
 
         <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#f4f6f8' }}>
           
-          {/* SIDEBAR IZQUIERDO */}
           <div style={{ width: '280px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '40px', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
@@ -464,34 +507,35 @@ function App() {
             </div>
           </div>
 
-          {/* ÁREA DE TRABAJO (DERECHA) */}
           <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
-              {/* ==================================================== */}
-              {/* PESTAÑA: REPORTES DE ALUMNOS */}
-              {/* ==================================================== */}
               {adminTab === 'reportes' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                     <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#111827', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 Buscador y Exportación</h2>
                     
-                    <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                      <select value={tipoBusqueda} onChange={(e) => {setTipoBusqueda(e.target.value); setTerminoBusqueda('');}} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontWeight: '500', color: '#374151', cursor: 'pointer' }}>
-                        <option value="alumno">👤 Alumno</option>
-                        <option value="clase">📚 Grupo / Empresa</option>
-                        <option value="profesor">👨‍🏫 Profesor</option>
-                      </select>
-                      <input type="text" placeholder={tipoBusqueda === 'alumno' ? "Buscar alumno..." : tipoBusqueda === 'clase' ? "Buscar grupo..." : "Buscar profesor..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 2, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
-                      <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '150px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
-                        <option value="todo">Todos los meses</option>
-                        <option value="2026-08">Agosto 2026</option>
-                        <option value="2026-07">Julio 2026</option>
-                        <option value="2026-06">Junio 2026</option>
-                      </select>
-                      <button onClick={() => generarPDFAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>📄 PDF</button>
-                      <button onClick={() => generarExcelAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>📊 EXCEL</button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
+                      <div style={{ display: 'flex', gap: '10px', flex: '1 1 auto', flexWrap: 'wrap' }}>
+                        <select value={tipoBusqueda} onChange={(e) => {setTipoBusqueda(e.target.value); setTerminoBusqueda('');}} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontWeight: '500', color: '#374151', cursor: 'pointer' }}>
+                          <option value="alumno">👤 Alumno</option>
+                          <option value="clase">📚 Grupo / Empresa</option>
+                          <option value="profesor">👨‍🏫 Profesor</option>
+                        </select>
+                        <input type="text" placeholder={tipoBusqueda === 'alumno' ? "Buscar alumno..." : tipoBusqueda === 'clase' ? "Buscar grupo..." : "Buscar profesor..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+                        <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
+                          <option value="todo">Todos los meses</option>
+                          <option value="2026-08">Agosto 2026</option>
+                          <option value="2026-07">Julio 2026</option>
+                          <option value="2026-06">Junio 2026</option>
+                        </select>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button onClick={() => generarPDFAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>📄 PDF</button>
+                        <button onClick={() => generarExcelAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap' }}>📊 EXCEL</button>
+                      </div>
                     </div>
 
                     <div style={{ overflowX: 'auto' }}>
@@ -542,11 +586,12 @@ function App() {
                                 return alumnosAMostrar.map((alum, subIdx) => {
                                   const estado = reg.asistencia?.[alum]; const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                                   const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
+                                  const notaCol = estado === 'asistio' ? formatNotasStr(reg.notas?.[alum]) : '--';
                                   return (
                                     <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
                                         <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha}</td><td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum}</td>
                                         <td style={{ padding: '12px' }}>{reg.clase} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td><td style={{ padding: '12px' }}>{reg.profesor}</td>
-                                        <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado?.replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{reg.notas?.[alum] || '--'}</td>
+                                        <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado?.replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                                         <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
                                     </tr>
                                   )
@@ -560,9 +605,6 @@ function App() {
                 </div>
               )}
 
-              {/* ==================================================== */}
-              {/* PESTAÑA: RENDIMIENTO DOCENTE */}
-              {/* ==================================================== */}
               {adminTab === 'rendimiento' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -607,9 +649,6 @@ function App() {
                 </div>
               )}
 
-              {/* ==================================================== */}
-              {/* PESTAÑA: GESTIÓN DE CLASES */}
-              {/* ==================================================== */}
               {adminTab === 'clases' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -678,9 +717,6 @@ function App() {
                 </div>
               )}
 
-              {/* ==================================================== */}
-              {/* PESTAÑA: DIRECTORIO DE PROFESORES */}
-              {/* ==================================================== */}
               {adminTab === 'profesores' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -727,9 +763,6 @@ function App() {
     )
   }
 
-  // ====================================================
-  // VISTA DEL PROFESOR (NO SUFRE CAMBIOS)
-  // ====================================================
   if (profesorSeleccionado) {
     let mesPrefixPlanilla = "";
     if (mesPlanilla === "Agosto 2026") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "Julio 2026") mesPrefixPlanilla = "2026-07";
@@ -740,7 +773,11 @@ function App() {
     if (claseSeleccionada) {
       const registrosDeEstaClase = registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo);
       registrosDeEstaClase.forEach(reg => {
-        if (reg.notas) { Object.values(reg.notas).forEach(nota => { const val = parseFloat(nota); if (!isNaN(val)) { totalNotas += val; countNotas++; }});}
+        if (reg.notas) { Object.values(reg.notas).forEach(nota => { 
+          // Soporta el formato nuevo y el viejo
+          const val = typeof nota === 'object' ? getPromedio(nota) : parseFloat(nota); 
+          if (!isNaN(val)) { totalNotas += parseFloat(val); countNotas++; }
+        });}
       });
     }
     const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
@@ -866,11 +903,28 @@ function App() {
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'no-asistio'})} style={obtenerEstiloBoton(estudiante, 'no-asistio', '#fca5a5', '#fee2e2', '#991b1b')}>No asistió</button>
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'reprogramo'})} style={obtenerEstiloBoton(estudiante, 'reprogramo', '#fcd34d', '#fef3c7', '#92400e')}>Reprogramó</button>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-                            <label style={{ fontSize: '14px', color: '#4b5563', fontWeight: '500' }}>Nota:</label>
-                            <input className="input-flotante" type="number" min="1" max="20" placeholder="--" value={notas[estudiante] || ''} onChange={(e) => setNotas({...notas, [estudiante]: e.target.value})} style={{ width: '65px', padding: '8px 10px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', textAlign: 'center' }} />
-                          </div>
                         </div>
+
+                        {/* DESPLIEGUE MÁGICO DE LOS 5 SKILLS SOLO SI ASISTIÓ */}
+                        {asistencia[estudiante] === 'asistio' && (
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: '600', width: '100%', textAlign: 'center', marginBottom: '4px' }}>Evaluación Diaria (1-20)</div>
+                            {['oral', 'grammar', 'reading', 'listening', 'writing'].map(skill => (
+                              <div key={skill} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '10px', color: '#3b82f6', fontWeight: '700', textTransform: 'uppercase' }}>{skill}</span>
+                                <select
+                                  value={notas[estudiante]?.[skill] || ''}
+                                  onChange={(e) => setNotas({...notas, [estudiante]: {...(notas[estudiante] || {}), [skill]: e.target.value}})}
+                                  style={{ width: '50px', padding: '6px 4px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px', textAlign: 'center', outline: 'none', backgroundColor: 'white', color: '#111827', cursor: 'pointer' }}
+                                >
+                                  <option value="">--</option>
+                                  {[...Array(20)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         <div style={{ width: '100%' }}>
                           <input className="input-flotante" type="text" placeholder={`Observaciones sobre ${estudiante} (Opcional)`} value={obsIndividual[estudiante] || ''} onChange={(e) => setObsIndividual({...obsIndividual, [estudiante]: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px', boxSizing: 'border-box' }} />
                         </div>
@@ -898,7 +952,7 @@ function App() {
                   <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Observaciones Generales</label>
                   <textarea className="input-flotante" rows="3" placeholder="Detalles sobre temas vistos, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
                 </div>
-                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>Guardar Registro</button>
+                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>Guardar Registro Completo</button>
               </div>
             ) : (
               <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
