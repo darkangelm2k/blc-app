@@ -35,6 +35,7 @@ function App() {
   const [clasesFirebase, setClasesFirebase] = useState([]) 
   const [registrosFirebase, setRegistrosFirebase] = useState([]) 
   const [pagosFirebase, setPagosFirebase] = useState([]) 
+  const [movimientosExtra, setMovimientosExtra] = useState([]) 
   
   const [vistaAdmin, setVistaAdmin] = useState(false)
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false)
@@ -60,10 +61,16 @@ function App() {
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
   const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false)
 
+  // ESTADOS FINANCIEROS
   const [nuevoPagoAlumno, setNuevoPagoAlumno] = useState('')
   const [nuevoPagoMonto, setNuevoPagoMonto] = useState('')
   const [nuevoPagoMes, setNuevoPagoMes] = useState('2026-08')
   const [mesFinanzas, setMesFinanzas] = useState('2026-08')
+
+  const [tipoMovimiento, setTipoMovimiento] = useState('ingreso_extra')
+  const [conceptoMovimiento, setConceptoMovimiento] = useState('')
+  const [montoMovimiento, setMontoMovimiento] = useState('')
+  const [mesMovimiento, setMesMovimiento] = useState('2026-08')
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -79,6 +86,9 @@ function App() {
 
         const pagosSnap = await getDocs(collection(db, "pagos"));
         setPagosFirebase(pagosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+        const movSnap = await getDocs(collection(db, "movimientosExtra"));
+        setMovimientosExtra(movSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       } catch (error) {
         console.error("Error al cargar datos:", error);
       }
@@ -119,6 +129,33 @@ function App() {
     return currentY + 8; 
   };
 
+  // NUEVO: GENERADOR DE BOLETAS DE PAGO
+  const generarPDFRecibo = async (pago) => {
+    const doc = new jsPDF();
+    const startY = await agregarEncabezadoPDF(doc, "Comprobante de Pago", [
+      `Centro: Boss Language Center SAC`,
+      `RUC: 20603806795`,
+      `Fecha de Emisión: ${new Date().toLocaleDateString()}`
+    ]);
+    
+    doc.setFontSize(14); doc.setTextColor(17, 24, 39);
+    doc.text("Detalles de la Operación:", 14, startY + 10);
+    
+    doc.setFontSize(12); doc.setTextColor(75, 85, 99);
+    doc.text(`Alumno: ${pago.alumno.toUpperCase()}`, 14, startY + 20);
+    doc.text(`Mes Cancelado: ${pago.mes}`, 14, startY + 28);
+    doc.text(`Fecha de Registro en Sistema: ${new Date(pago.fechaRegistro).toLocaleDateString()}`, 14, startY + 36);
+
+    doc.setFontSize(18); doc.setTextColor(5, 150, 105); 
+    doc.text(`Total Pagado: S/. ${Number(pago.monto).toFixed(2)}`, 14, startY + 55);
+
+    doc.setFontSize(10); doc.setTextColor(156, 163, 175);
+    doc.text("Documento interno y oficial de Boss Language Center SAC.", 14, startY + 75);
+
+    doc.save(`Recibo_BLC_${pago.alumno}_${pago.mes}.pdf`);
+    setMensajeExito('¡Comprobante generado! 📄✅'); setTimeout(() => setMensajeExito(''), 3000);
+  }
+
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
     const nombreMes = mesPlanilla === "2026-08" ? "Agosto 2026" : "Julio 2026";
@@ -148,7 +185,7 @@ function App() {
       estudiantes.forEach(est => {
         const estado = reg.asistencia[est];
         const observacion = reg.observacionesIndividuales?.[est] || reg.observacionGeneral || '--';
-        const notaCol = estado === 'asistio' ? formatNotasStr(reg.notas?.[est]) : '--';
+        const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[est]) : '--';
         tableData.push([reg.fecha || '--', est, (estado || '--').replace('-', ' '), notaCol, observacion]);
       });
     });
@@ -187,7 +224,7 @@ function App() {
       alumnosAMostrar.forEach(alum => {
          const estado = reg.asistencia?.[alum];
          const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
-         const notaCol = estado === 'asistio' ? formatNotasStr(reg.notas?.[alum]) : '--';
+         const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
          tableData.push([reg.fecha || '--', alum || '--', (estado || '--').replace('-', ' '), notaCol, observacion]);
       });
     });
@@ -215,7 +252,7 @@ function App() {
          const n = reg.notas?.[alum];
          let o='--', g='--', r='--', l='--', w='--', prom='--';
          
-         if (estado === 'asistio') {
+         if (estado === 'asistio' || estado === 'reprogramo') {
            if (typeof n === 'object' && n !== null) {
               o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--';
               prom = getPromedio(n);
@@ -241,9 +278,9 @@ function App() {
       estudiantes.forEach(est => {
         if(!statsAlumnos[est]) statsAlumnos[est] = { faltas: 0, asistencias: 0, notasSum: 0, notasCount: 0 };
         if(reg.asistencia[est] === 'no-asistio') statsAlumnos[est].faltas++;
-        else if(reg.asistencia[est] === 'asistio') statsAlumnos[est].asistencias++;
+        else if(reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') statsAlumnos[est].asistencias++;
         
-        if (reg.asistencia[est] === 'asistio') {
+        if (reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') {
           const prom = parseFloat(getPromedio(reg.notas?.[est]));
           if(!isNaN(prom)) { statsAlumnos[est].notasSum += prom; statsAlumnos[est].notasCount++; }
         }
@@ -276,9 +313,9 @@ function App() {
         const estado = reg.asistencia[est];
         if (estado) {
           statsProfesores[profNombre].totalRegistrosAsistencia++;
-          if (estado === 'asistio') { statsProfesores[profNombre].totalAsistencias++; }
+          if (estado === 'asistio' || estado === 'reprogramo') { statsProfesores[profNombre].totalAsistencias++; }
         }
-        if (estado === 'asistio') {
+        if (estado === 'asistio' || estado === 'reprogramo') {
           const prom = parseFloat(getPromedio(reg.notas?.[est]));
           if (!isNaN(prom)) { statsProfesores[profNombre].sumaNotas += prom; statsProfesores[profNombre].cantidadNotas++; }
         }
@@ -292,20 +329,44 @@ function App() {
     }).sort((a, b) => b.horasTotales - a.horasTotales); 
   }
 
+  // NUEVA FUNCION DE MATCH PARA SOPORTAR "TODO EL 2026"
+  const matchFiltroFinanzas = (fechaDato) => {
+    if (!fechaDato) return false;
+    if (mesFinanzas === 'todo') return true;
+    if (mesFinanzas === '2026') return fechaDato.startsWith('2026');
+    return fechaDato.startsWith(mesFinanzas); 
+  }
+
   const calcularFinanzas = () => {
-    let ingresos = 0;
-    let egresos = 0;
+    let ingresosPensiones = 0; let ingresosExtra = 0; let egresosNomina = 0; let egresosExtra = 0;
+
     pagosFirebase.forEach(pago => {
-      if (mesFinanzas === 'todo' || pago.mes === mesFinanzas) {
-        ingresos += Number(pago.monto || 0);
-      }
+      if (matchFiltroFinanzas(pago.mes)) ingresosPensiones += Number(pago.monto || 0);
     });
     registrosFirebase.forEach(reg => {
-      if (mesFinanzas === 'todo' || reg.fecha?.startsWith(mesFinanzas)) {
-        egresos += (Number(reg.horas || 0) * Number(reg.tarifa || 0));
+      if (matchFiltroFinanzas(reg.fecha)) egresosNomina += (Number(reg.horas || 0) * Number(reg.tarifa || 0));
+    });
+    movimientosExtra.forEach(mov => {
+      if (matchFiltroFinanzas(mov.mes)) {
+        if (mov.tipo === 'ingreso_extra') ingresosExtra += Number(mov.monto || 0);
+        else if (mov.tipo === 'gasto_extra') egresosExtra += Number(mov.monto || 0);
       }
     });
-    return { ingresos, egresos, balance: ingresos - egresos };
+
+    const totalIngresos = ingresosPensiones + ingresosExtra;
+    const totalEgresos = egresosNomina + egresosExtra;
+    const balance = totalIngresos - totalEgresos;
+
+    const baseReparto = balance > 0 ? balance : 0;
+    const reservaEmpresa = baseReparto * 0.20;
+    const repartoNano = baseReparto * 0.40;
+    const repartoAlonso = baseReparto * 0.40;
+
+    return { 
+      ingresosPensiones, ingresosExtra, totalIngresos, 
+      egresosNomina, egresosExtra, totalEgresos, 
+      balance, reservaEmpresa, repartoNano, repartoAlonso 
+    };
   }
 
   const handleToggleActivoProfesor = async (id, estadoActual) => {
@@ -367,6 +428,24 @@ function App() {
     } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
+  const handleAgregarMovimientoExtra = async (e) => {
+    e.preventDefault();
+    if (!conceptoMovimiento || !montoMovimiento || !mesMovimiento) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); return;
+    }
+    try {
+      await addDoc(collection(db, "movimientosExtra"), {
+        tipo: tipoMovimiento,
+        concepto: conceptoMovimiento,
+        monto: Number(montoMovimiento),
+        mes: mesMovimiento,
+        fechaRegistro: new Date().toISOString()
+      });
+      setConceptoMovimiento(''); setMontoMovimiento('');
+      setMensajeExito('Movimiento financiero guardado 📊✅'); setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
+  }
+
   const handleActualizarCurso = async () => {
     if (nuevoNombreCurso.trim() === '') return;
     try {
@@ -421,7 +500,7 @@ function App() {
     claseSeleccionada.estudiantes.forEach(estudiante => { 
       const ast = asistencia[estudiante];
       if (!ast) formularioCompleto = false;
-      if (ast === 'asistio') {
+      if (ast === 'asistio' || ast === 'reprogramo') {
         const n = notas[estudiante];
         if (!n || (!n.oral && !n.grammar && !n.reading && !n.listening && !n.writing)) {
           formularioCompleto = false;
@@ -566,7 +645,8 @@ function App() {
                         </select>
                         <input type="text" placeholder={tipoBusqueda === 'alumno' ? "Buscar alumno..." : tipoBusqueda === 'clase' ? "Buscar grupo..." : "Buscar profesor..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
                         <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
-                          <option value="todo">Todos los meses</option>
+                          <option value="todo">Historial Completo</option>
+                          <option value="2026">Todo el 2026 (Anual)</option>
                           <option value="2026-08">Agosto 2026</option>
                           <option value="2026-07">Julio 2026</option>
                           <option value="2026-06">Junio 2026</option>
@@ -627,7 +707,7 @@ function App() {
                                 return alumnosAMostrar.map((alum, subIdx) => {
                                   const estado = reg.asistencia?.[alum]; const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                                   const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
-                                  const notaCol = estado === 'asistio' ? formatNotasStr(reg.notas?.[alum]) : '--';
+                                  const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
                                   return (
                                     <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
                                         <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha}</td><td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum}</td>
@@ -653,8 +733,10 @@ function App() {
                       <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Académico Docente</h2>
                       <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px' }}>
                         <option value="todo">Historial Completo</option>
+                        <option value="2026">Todo el 2026 (Anual)</option>
                         <option value="2026-08">Agosto 2026</option>
                         <option value="2026-07">Julio 2026</option>
+                        <option value="2026-06">Junio 2026</option>
                       </select>
                     </div>
                     
@@ -694,36 +776,81 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero</h2>
+                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
                     <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
                       <option value="todo">Historial Completo</option>
+                      <option value="2026">Todo el 2026 (Anual)</option>
                       <option value="2026-08">Agosto 2026</option>
                       <option value="2026-07">Julio 2026</option>
                       <option value="2026-06">Junio 2026</option>
                     </select>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
-                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #10b981' }}>
-                      <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#6b7280', textTransform: 'uppercase' }}>Ingresos Mensualidades</p>
-                      <h3 style={{ margin: 0, fontSize: '28px', color: '#111827' }}>S/. {finanzas.ingresos.toFixed(2)}</h3>
+                  {/* Tarjetas Principales */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px' }}>
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #10b981' }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Ingresos Totales</p>
+                      <h3 style={{ margin: 0, fontSize: '24px', color: '#111827' }}>S/. {finanzas.totalIngresos.toFixed(2)}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Pens.: S/. {finanzas.ingresosPensiones} | Extra: S/. {finanzas.ingresosExtra}</p>
                     </div>
-                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #ef4444' }}>
-                      <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#6b7280', textTransform: 'uppercase' }}>Pago Profesores (Nómina)</p>
-                      <h3 style={{ margin: 0, fontSize: '28px', color: '#111827' }}>S/. {finanzas.egresos.toFixed(2)}</h3>
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #ef4444' }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Egresos Totales</p>
+                      <h3 style={{ margin: 0, fontSize: '24px', color: '#111827' }}>S/. {finanzas.totalEgresos.toFixed(2)}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Nóm.: S/. {finanzas.egresosNomina} | Extra: S/. {finanzas.egresosExtra}</p>
                     </div>
-                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: `6px solid ${finanzas.balance >= 0 ? '#3b82f6' : '#f97316'}` }}>
-                      <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#6b7280', textTransform: 'uppercase' }}>Balance Neto</p>
-                      <h3 style={{ margin: 0, fontSize: '28px', color: finanzas.balance >= 0 ? '#1d4ed8' : '#c2410c' }}>S/. {finanzas.balance.toFixed(2)}</h3>
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: `6px solid ${finanzas.balance >= 0 ? '#3b82f6' : '#f97316'}` }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Balance Neto</p>
+                      <h3 style={{ margin: 0, fontSize: '24px', color: finanzas.balance >= 0 ? '#1d4ed8' : '#c2410c' }}>S/. {finanzas.balance.toFixed(2)}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Resultado Operativo</p>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                    <div style={{ flex: '1 1 300px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Pago</h2>
+                  {/* TARJETA DE DISTRIBUCIÓN REGLA 20/40/40 */}
+                  <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', padding: '20px', borderRadius: '16px' }}>
+                    <h3 style={{ margin: '0 0 12px 0', color: '#166534', fontSize: '15px', fontWeight: '700' }}>🏛️ Distribución de Utilidades y Fondos (Regla 20% Reserva / 40% - 40% Socios)</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                      <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 'bold', textTransform: 'uppercase' }}>Reserva Empresa (20%)</span>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534', marginTop: '4px' }}>S/. {finanzas.reservaEmpresa.toFixed(2)}</div>
+                      </div>
+                      <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 'bold', textTransform: 'uppercase' }}>Socio 1 - Nano (40%)</span>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534', marginTop: '4px' }}>S/. {finanzas.repartoNano.toFixed(2)}</div>
+                      </div>
+                      <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 'bold', textTransform: 'uppercase' }}>Socio 2 - Alonso (40%)</span>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534', marginTop: '4px' }}>S/. {finanzas.repartoAlonso.toFixed(2)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* NUEVO: SEMAFORIZACIÓN (SOLO VISIBLE SI ES UN MES ESPECÍFICO) */}
+                  {mesFinanzas !== 'todo' && mesFinanzas !== '2026' && (
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h3 style={{ margin: '0 0 15px 0', color: '#374151', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚦 Estado de Cuenta de Alumnos ({mesFinanzas})</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
+                        {todosLosAlumnos.map(alum => {
+                          const haPagado = pagosFirebase.some(p => p.alumno === alum && p.mes === mesFinanzas);
+                          return (
+                            <div key={alum} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${haPagado ? '#bbf7d0' : '#fecdd3'}`, backgroundColor: haPagado ? '#f0fdf4' : '#fff1f2' }}>
+                              <span style={{ fontSize: '13px', fontWeight: '500', color: '#374151', textTransform: 'capitalize' }}>{alum}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 'bold', color: haPagado ? '#166534' : '#9f1239' }}>{haPagado ? '🟢 Al día' : '🔴 Debe'}</span>
+                            </div>
+                          );
+                        })}
+                        {todosLosAlumnos.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px' }}>No hay alumnos matriculados en ninguna clase.</p>}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    
+                    {/* 1. REGISTRO PENSIONES */}
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '17px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🎓 Registrar Mensualidad de Alumno</h2>
                       <form onSubmit={handleAgregarPago} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
-                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Alumno</label>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Alumno</label>
                           <select value={nuevoPagoAlumno} onChange={(e) => setNuevoPagoAlumno(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
                             <option value="">-- Seleccionar --</option>
                             {todosLosAlumnos.map((alum, idx) => (
@@ -732,44 +859,83 @@ function App() {
                           </select>
                         </div>
                         <div>
-                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Monto Pagado (S/.)</label>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Monto (S/.)</label>
                           <input type="number" placeholder="Ej: 150" value={nuevoPagoMonto} onChange={(e) => setNuevoPagoMonto(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                         </div>
                         <div>
-                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes correspondiente</label>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes</label>
                           <select value={nuevoPagoMes} onChange={(e) => setNuevoPagoMes(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
                             <option value="2026-08">Agosto 2026</option>
                             <option value="2026-07">Julio 2026</option>
-                            <option value="2026-06">Junio 2026</option>
                           </select>
                         </div>
-                        <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '5px' }}>Registrar Ingreso</button>
+                        <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Guardar Mensualidad</button>
                       </form>
                     </div>
 
-                    <div style={{ flex: '2 1 400px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Pagos ({mesFinanzas === 'todo' ? 'General' : mesFinanzas})</h2>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
-                        {pagosFirebase.filter(p => mesFinanzas === 'todo' || p.mes === mesFinanzas)
-                                      .sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro))
-                                      .map((pago, idx) => (
-                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{pago.alumno}</span>
-                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>Reg: {new Date(pago.fechaRegistro).toLocaleDateString()}</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                              <span style={{ fontSize: '12px', color: '#6b7280', backgroundColor: '#e5e7eb', padding: '4px 8px', borderRadius: '6px' }}>Mes: {pago.mes}</span>
-                              <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>+ S/. {pago.monto.toFixed(2)}</span>
-                            </div>
+                    {/* 2. REGISTRO MOVIMIENTOS EXTRA (SUNAT / MOVILIDAD) */}
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '17px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📦 Movimiento Extra (SUNAT, Movilidad, etc)</h2>
+                      <form onSubmit={handleAgregarMovimientoExtra} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Tipo de Operación</label>
+                          <select value={tipoMovimiento} onChange={(e) => setTipoMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="ingreso_extra">🟩 Ingreso Extra (Devolución SUNAT, Venta, etc)</option>
+                            <option value="gasto_extra">🟥 Gasto Extra (Movilidad, Servicios, Material)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Concepto / Descripción</label>
+                          <input type="text" placeholder="Ej: Devolución Impuestos SUNAT o Pasaje Movilidad" value={conceptoMovimiento} onChange={(e) => setConceptoMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Monto (S/.)</label>
+                            <input type="number" placeholder="Ej: 200" value={montoMovimiento} onChange={(e) => setMontoMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
-                        ))}
-                        {pagosFirebase.filter(p => mesFinanzas === 'todo' || p.mes === mesFinanzas).length === 0 && (
-                           <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center', marginTop: '20px' }}>No hay ingresos registrados en este periodo.</p>
-                        )}
-                      </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes</label>
+                            <select value={mesMovimiento} onChange={(e) => setMesMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                              <option value="2026-08">Agosto 2026</option>
+                              <option value="2026-07">Julio 2026</option>
+                            </select>
+                          </div>
+                        </div>
+                        <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Guardar Movimiento</button>
+                      </form>
+                    </div>
+
+                  </div>
+
+                  {/* Historial de Pagos Ancho Completo */}
+                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                    <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Pagos Emitidos ({mesFinanzas === 'todo' ? 'General' : mesFinanzas})</h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '15px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
+                      {pagosFirebase.filter(p => matchFiltroFinanzas(p.mes))
+                                    .sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro))
+                                    .map((pago, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{pago.alumno}</span>
+                            <span style={{ fontSize: '11px', color: '#9ca3af' }}>Reg: {new Date(pago.fechaRegistro).toLocaleDateString()}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                              <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>+ S/. {pago.monto.toFixed(2)}</span>
+                              <span style={{ fontSize: '11px', color: '#6b7280' }}>Mes: {pago.mes}</span>
+                            </div>
+                            <button onClick={() => generarPDFRecibo(pago)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Descargar Boleta PDF">
+                              📄
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {pagosFirebase.filter(p => matchFiltroFinanzas(p.mes)).length === 0 && (
+                          <p style={{ color: '#9ca3af', fontSize: '13px', gridColumn: '1 / -1', textAlign: 'center' }}>No hay ingresos registrados en este periodo.</p>
+                      )}
                     </div>
                   </div>
+
                 </div>
               )}
 
@@ -859,7 +1025,6 @@ function App() {
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👥 Personal Registrado</h2>
                       
-                      {/* LA CAJA AHORA CRECE HACIA ABAJO SIN SCROLL INTERNO */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {profesores.map(prof => (
                           <div key={prof.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: prof.activo !== false ? 1 : 0.5 }}>
@@ -891,7 +1056,7 @@ function App() {
 
   if (profesorSeleccionado) {
     let mesPrefixPlanilla = "";
-    if (mesPlanilla === "Agosto 2026") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "Julio 2026") mesPrefixPlanilla = "2026-07";
+    if (mesPlanilla === "2026-08") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "2026-07") mesPrefixPlanilla = "2026-07";
     const registrosMesProfesor = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla)));
     const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
 
@@ -945,12 +1110,12 @@ function App() {
               <div style={{ marginBottom: '20px', textAlign: 'left' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Periodo a facturar:</label>
                 <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
-                  <option value="Agosto 2026">Agosto 2026</option>
-                  <option value="Julio 2026">Julio 2026</option>
+                  <option value="2026-08">Agosto 2026</option>
+                  <option value="2026-07">Julio 2026</option>
                 </select>
               </div>
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <p style={{ margin: 0, color: '#6b7280', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Monto a cobrar ({mesPlanilla})</p>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Monto a cobrar</p>
                 <h1 style={{ margin: '8px 0', color: '#059669', fontSize: '36px' }}>S/. {montoCalculadoPantalla.toFixed(2)}</h1>
                 <p style={{ margin: 0, color: '#9ca3af', fontSize: '12px' }}>Cálculo basado en las horas registradas este periodo.</p>
               </div>
@@ -1030,9 +1195,11 @@ function App() {
                           </div>
                         </div>
 
-                        {asistencia[estudiante] === 'asistio' && (
+                        {(asistencia[estudiante] === 'asistio' || asistencia[estudiante] === 'reprogramo') && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', flexWrap: 'wrap' }}>
-                            <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: '600', width: '100%', textAlign: 'center', marginBottom: '4px' }}>Evaluación Diaria (1-20)</div>
+                            <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: '600', width: '100%', textAlign: 'center', marginBottom: '4px' }}>
+                              Evaluación Diaria (1-20) {asistencia[estudiante] === 'reprogramo' ? '- Clase Reprogramada' : ''}
+                            </div>
                             {['oral', 'grammar', 'reading', 'listening', 'writing'].map(skill => (
                               <div key={skill} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                                 <span style={{ fontSize: '10px', color: '#3b82f6', fontWeight: '700', textTransform: 'uppercase' }}>{skill}</span>
@@ -1134,7 +1301,6 @@ function App() {
           <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>Selecciona tu perfil docente</p>
         </div>
         
-        {/* LA MEJORA VISUAL DE LAS DOS COLUMNAS APLICADA AQUÍ */}
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
           {profesoresActivos.map((profesor) => (
             <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion">
