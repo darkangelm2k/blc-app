@@ -56,6 +56,8 @@ function App() {
   const [editandoCurso, setEditandoCurso] = useState(false)
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
 
+  const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false) // NUEVO: Estado para el filtro visual
+
   useEffect(() => {
     const cargarDatos = async () => {
       try {
@@ -78,9 +80,6 @@ function App() {
   }, [accesoGlobal, mensajeExito]); 
 
 
-  // ==========================================
-  // MOTOR MAESTRO DE DISEÑO UNIFICADO DE PDFS
-  // ==========================================
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
 
@@ -126,11 +125,6 @@ function App() {
 
     return currentY + 8; 
   };
-
-
-  // ==========================================
-  // GENERADORES DE DOCUMENTOS OFICIALES
-  // ==========================================
 
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
@@ -309,11 +303,6 @@ function App() {
     setTimeout(() => setMensajeExito(''), 4000);
   }
 
-
-  // ==========================================
-  // FUNCIONES DE GESTIÓN (DAR DE BAJA PROFESORES Y CLASES)
-  // ==========================================
-  
   const handleToggleActivoProfesor = async (id, estadoActual) => {
     try {
       const profRef = doc(db, "profesores", id);
@@ -387,9 +376,6 @@ function App() {
     }
   }
 
-  // ==========================================
-  // BUSCADOR INTELIGENTE Y CÁLCULOS
-  // ==========================================
   const resultadosBusqueda = registrosFirebase.filter(reg => {
     if (terminoBusqueda.trim() === '') return false;
     
@@ -412,7 +398,6 @@ function App() {
     return true;
   }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
 
-  // Las clases del profesor SOLO muestran las que no están archivadas
   const misClases = profesorSeleccionado 
     ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) 
     : [];
@@ -567,9 +552,6 @@ function App() {
     )
   }
 
-  // ==========================================
-  // PANTALLA SECRETA DE ADMINISTRACIÓN
-  // ==========================================
   if (vistaAdmin) {
     return (
       <>
@@ -679,10 +661,22 @@ function App() {
               </form>
 
               <div style={{ marginTop: '20px' }}>
-                <h3 style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 10px 0' }}>Clases Activas / Archivadas:</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h3 style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
+                    {verArchivadasAdmin ? '🗂️ Clases Archivadas' : '🟢 Clases Activas'}
+                  </h3>
+                  <button 
+                    type="button" 
+                    onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} 
+                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    {verArchivadasAdmin ? 'Ver Activas' : 'Ver Archivadas'}
+                  </button>
+                </div>
+                
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '5px' }}>
-                  {clasesFirebase.map(clase => (
-                    <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.5 : 1 }}>
+                  {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).map(clase => (
+                    <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.6 : 1 }}>
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '14px', fontWeight: '600', color: clase.archivada ? '#9ca3af' : '#374151' }}>{clase.titulo}</span>
                         <span style={{ fontSize: '11px', color: '#6b7280' }}>{clase.curso}</span>
@@ -696,6 +690,12 @@ function App() {
                       </button>
                     </div>
                   ))}
+                  
+                  {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).length === 0 && (
+                    <p style={{ color: '#9ca3af', fontSize: '12px', textAlign: 'center', margin: '20px 0' }}>
+                      No hay clases {verArchivadasAdmin ? 'archivadas' : 'activas'}.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -810,9 +810,6 @@ function App() {
     )
   }
 
-  // ==========================================
-  // PANTALLA 3: PANEL DE CONTROL DEL PROFESOR
-  // ==========================================
   if (profesorSeleccionado) {
 
     let mesPrefixPlanilla = "";
@@ -824,7 +821,6 @@ function App() {
     );
     const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
 
-    // CÁLCULO DEL PROMEDIO GENERAL DE LA CLASE
     let totalNotas = 0;
     let countNotas = 0;
     if (claseSeleccionada) {
@@ -1057,9 +1053,6 @@ function App() {
     )
   }
 
-  // ==========================================
-  // PANTALLA 2: SELECCIÓN DE PERFIL DE PROFESOR
-  // ==========================================
   return (
     <>
       {estilosGlobales}
