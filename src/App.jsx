@@ -5,6 +5,9 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 function App() {
+  // ==========================================
+  // 1. ESTADOS (STATES)
+  // ==========================================
   const [modoIngreso, setModoIngreso] = useState('inicio') 
   
   const [accesoGlobal, setAccesoGlobal] = useState(false)
@@ -92,6 +95,9 @@ function App() {
     setTimeout(() => { setMostrarError(false); setMensajeError(''); }, 3500);
   }
 
+  // ==========================================
+  // 2. EFECTOS (CARGA DE DATOS)
+  // ==========================================
   useEffect(() => {
     const cargarDatos = async () => {
       try {
@@ -99,7 +105,7 @@ function App() {
         setProfesores(profesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
         const alumnosSnap = await getDocs(collection(db, "alumnos"));
-        setAlumnosFirebase(alumnosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => a.nombre.localeCompare(b.nombre)));
+        setAlumnosFirebase(alumnosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
 
         const clasesSnap = await getDocs(collection(db, "clases"));
         setClasesFirebase(clasesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -119,10 +125,13 @@ function App() {
     cargarDatos();
   }, [mensajeExito]); 
 
+  // ==========================================
+  // 3. CÁLCULOS Y HELPERS BLINDADOS CONTRA DATOS VIEJOS
+  // ==========================================
   const todosLosAlumnos = Array.from(new Set([
-    ...alumnosFirebase.map(a => a.nombre),
+    ...alumnosFirebase.map(a => a.nombre || ''),
     ...clasesFirebase.flatMap(c => c.estudiantes || [])
-  ])).sort();
+  ])).filter(Boolean).sort();
 
   const getPromedio = (notasDato) => {
     if (!notasDato) return '--';
@@ -145,6 +154,9 @@ function App() {
     return fechaDato.startsWith(mesFinanzas); 
   }
 
+  // ==========================================
+  // 4. FUNCIONES EXPORTAR PDF / EXCEL
+  // ==========================================
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
     try {
@@ -171,12 +183,12 @@ function App() {
     ]);
     doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text("Detalles de la Operación:", 14, startY + 10);
     doc.setFontSize(12); doc.setTextColor(75, 85, 99);
-    doc.text(`Alumno: ${pago.alumno.toUpperCase()}`, 14, startY + 20);
-    doc.text(`Mes Cancelado: ${pago.mes}`, 14, startY + 28);
-    doc.text(`Fecha de Registro en Sistema: ${new Date(pago.fechaRegistro).toLocaleDateString()}`, 14, startY + 36);
-    doc.setFontSize(18); doc.setTextColor(5, 150, 105); doc.text(`Total Pagado: S/. ${Number(pago.monto).toFixed(2)}`, 14, startY + 55);
+    doc.text(`Alumno: ${(pago.alumno || 'Alumno').toUpperCase()}`, 14, startY + 20);
+    doc.text(`Mes Cancelado: ${pago.mes || '--'}`, 14, startY + 28);
+    doc.text(`Fecha de Registro en Sistema: ${pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}`, 14, startY + 36);
+    doc.setFontSize(18); doc.setTextColor(5, 150, 105); doc.text(`Total Pagado: S/. ${Number(pago.monto || 0).toFixed(2)}`, 14, startY + 55);
     doc.setFontSize(10); doc.setTextColor(156, 163, 175); doc.text("Documento interno y oficial de Boss Language Center SAC.", 14, startY + 75);
-    doc.save(`Recibo_BLC_${pago.alumno}_${pago.mes}.pdf`);
+    doc.save(`Recibo_BLC_${pago.alumno || 'Pago'}_${pago.mes || ''}.pdf`);
   }
 
   const generarPDFReporteAlumnoUnico = async () => {
@@ -197,7 +209,7 @@ function App() {
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
 
     const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [
-      `Alumno: ${alumnoSeleccionado.toUpperCase()}`, 
+      `Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, 
       `Promedio Global: ${promedioGlobal}`, 
       `Asistencia Total: ${asistenciaPorcentaje}%`,
       `Generado: ${new Date().toLocaleDateString()}`
@@ -212,14 +224,14 @@ function App() {
     });
 
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
-    doc.save(`Libreta_${alumnoSeleccionado.replace(' ', '_')}.pdf`);
+    doc.save(`Libreta_${(alumnoSeleccionado || 'Alumno').replace(' ', '_')}.pdf`);
   }
 
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
     const nombreMes = mesPlanilla === "2026-08" ? "Agosto 2026" : "Julio 2026";
-    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado.nombre}`, `Periodo: ${nombreMes}`, `Centro: Boss Language Center SAC`]);
-    const registrosMes = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPlanilla === "" || reg.fecha?.startsWith(mesPlanilla)));
+    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado?.nombre || 'Docente'}`, `Periodo: ${nombreMes}`, `Centro: Boss Language Center SAC`]);
+    const registrosMes = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado?.nombre && (mesPlanilla === "" || reg.fecha?.startsWith(mesPlanilla)));
     let totalPagar = 0;
     const tableData = registrosMes.map(reg => {
       const monto = (reg.horas || 0) * (reg.tarifa || 0); totalPagar += monto;
@@ -228,16 +240,16 @@ function App() {
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Horas Impartidas', 'Tarifa/Hora', 'Subtotal']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 }});
     doc.setFontSize(16); doc.setTextColor(5, 150, 105); doc.text(`Total a Facturar: S/. ${totalPagar.toFixed(2)}`, 14, doc.lastAutoTable.finalY + 15);
     doc.setFontSize(10); doc.setTextColor(75, 85, 99); doc.text("Instrucciones: Emitir el Recibo por Honorarios a Boss Language Center SAC (RUC: 20603806795).", 14, doc.lastAutoTable.finalY + 25);
-    doc.save(`Planilla_${profesorSeleccionado.nombre}_${nombreMes.replace(' ', '_')}.pdf`);
+    doc.save(`Planilla_${profesorSeleccionado?.nombre || 'Docente'}_${nombreMes.replace(' ', '_')}.pdf`);
     setMostrarPlanilla(false); setMensajeExito('¡Planilla generada exitosamente! 💰✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
   const generarPDFReporteClase = async () => {
     const doc = new jsPDF();
     let periodoStr = mesExportar === 'todo' ? 'Historial Completo' : mesExportar;
-    const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [`Clase: ${claseSeleccionada.titulo}`, `Nivel Actual: ${claseSeleccionada.curso}`, `Profesor a cargo: ${profesorSeleccionado.nombre}`, `Periodo: ${periodoStr}`]);
+    const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [`Clase: ${claseSeleccionada?.titulo || 'Grupo'}`, `Nivel Actual: ${claseSeleccionada?.curso || '--'}`, `Profesor a cargo: ${profesorSeleccionado?.nombre || '--'}`, `Periodo: ${periodoStr}`]);
     let mesPrefix = ""; if (mesExportar === "Agosto 2026") mesPrefix = "2026-08"; else if (mesExportar === "Julio 2026") mesPrefix = "2026-07"; else if (mesExportar === "Junio 2026") mesPrefix = "2026-06";
-    const registrosFiltrados = registrosFirebase.filter(reg => reg.clase === claseSeleccionada.titulo && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    const registrosFiltrados = registrosFirebase.filter(reg => reg.clase === claseSeleccionada?.titulo && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
     const tableData = [];
     registrosFiltrados.forEach(reg => {
       const estudiantes = Object.keys(reg.asistencia || {});
@@ -249,7 +261,7 @@ function App() {
       });
     });
     autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
-    doc.save(`Reporte_${claseSeleccionada.titulo}.pdf`);
+    doc.save(`Reporte_${claseSeleccionada?.titulo || 'Grupo'}.pdf`);
     setMostrarModalExportar(false); setMensajeExito('¡Reporte exportado con éxito! 📄✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
@@ -277,7 +289,7 @@ function App() {
       const nombres = Object.keys(reg.asistencia || {});
       let alumnosAMostrar = nombres;
       if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
-         const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+         const match = nombres.find(n => (n || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
          if (match) alumnosAMostrar = [match];
       }
       alumnosAMostrar.forEach(alum => {
@@ -299,7 +311,7 @@ function App() {
       const nombres = Object.keys(reg.asistencia || {});
       let alumnosAMostrar = nombres;
       if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
-         const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+         const match = nombres.find(n => (n || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
          if (match) alumnosAMostrar = [match];
       }
       alumnosAMostrar.forEach(alum => {
@@ -307,8 +319,10 @@ function App() {
          const obs = (reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); 
          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
+         
          const n = reg.notas?.[alum];
          let o='--', g='--', r='--', l='--', w='--', prom='--';
+         
          if (estado === 'asistio' || estado === 'reprogramo') {
            if (typeof n === 'object' && n !== null) {
               o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--';
@@ -317,7 +331,8 @@ function App() {
               prom = parseFloat(n).toFixed(1);
            }
          }
-         csvContent += `${reg.fecha || '--'},${alum},${reg.clase} (${nivelReal}),${reg.profesor},${estado},${o},${g},${r},${l},${w},${prom},${obs}\n`;
+
+         csvContent += `${reg.fecha || '--'},${alum},${reg.clase || '--'} (${nivelReal}),${reg.profesor || '--'},${estado},${o},${g},${r},${l},${w},${prom},${obs}\n`;
       });
     });
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
@@ -327,6 +342,9 @@ function App() {
     setMensajeExito('¡Excel exportado correctamente! 📈✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
+  // ==========================================
+  // 5. CÁLCULO DE DASHBOARDS (METRICAS)
+  // ==========================================
   const calcularMetricas = () => {
     const statsAlumnos = {};
     registrosFirebase.forEach(reg => {
@@ -335,6 +353,7 @@ function App() {
         if(!statsAlumnos[est]) statsAlumnos[est] = { faltas: 0, asistencias: 0, notasSum: 0, notasCount: 0 };
         if(reg.asistencia[est] === 'no-asistio') statsAlumnos[est].faltas++;
         else if(reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') statsAlumnos[est].asistencias++;
+        
         if (reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') {
           const prom = parseFloat(getPromedio(reg.notas?.[est]));
           if(!isNaN(prom)) { statsAlumnos[est].notasSum += prom; statsAlumnos[est].notasCount++; }
@@ -362,7 +381,8 @@ function App() {
          if (mesFiltroBusqueda === '2026' && !reg.fecha?.startsWith('2026')) return;
       }
       const profNombre = reg.profesor;
-      if (!statsProfesores[profNombre]) return;
+      if (!profNombre || !statsProfesores[profNombre]) return;
+      
       statsProfesores[profNombre].horasTotales += (Number(reg.horas) || 0);
       const estudiantes = Object.keys(reg.asistencia || {});
       estudiantes.forEach(est => {
@@ -387,29 +407,41 @@ function App() {
 
   const calcularFinanzas = () => {
     let ingresosPensiones = 0; let ingresosExtra = 0; let egresosNomina = 0; let egresosExtra = 0;
-    pagosFirebase.forEach(pago => { if (matchFiltroFinanzas(pago.mes)) ingresosPensiones += Number(pago.monto || 0); });
-    registrosFirebase.forEach(reg => { if (matchFiltroFinanzas(reg.fecha)) egresosNomina += (Number(reg.horas || 0) * Number(reg.tarifa || 0)); });
+
+    pagosFirebase.forEach(pago => {
+      if (matchFiltroFinanzas(pago.mes)) ingresosPensiones += Number(pago.monto || 0);
+    });
+    registrosFirebase.forEach(reg => {
+      if (matchFiltroFinanzas(reg.fecha)) egresosNomina += (Number(reg.horas || 0) * Number(reg.tarifa || 0));
+    });
     movimientosExtra.forEach(mov => {
       if (matchFiltroFinanzas(mov.mes)) {
         if (mov.tipo === 'ingreso_extra') ingresosExtra += Number(mov.monto || 0);
         else if (mov.tipo === 'gasto_extra') egresosExtra += Number(mov.monto || 0);
       }
     });
+
     const totalIngresos = ingresosPensiones + ingresosExtra;
     const totalEgresos = egresosNomina + egresosExtra;
     const balance = totalIngresos - totalEgresos;
+
     const baseReparto = balance > 0 ? balance : 0;
     const reservaEmpresa = baseReparto * 0.20;
     const repartoDaniel = baseReparto * 0.40;
     const repartoMichael = baseReparto * 0.40;
-    return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
+
+    return { 
+      ingresosPensiones, ingresosExtra, totalIngresos, 
+      egresosNomina, egresosExtra, totalEgresos, 
+      balance, reservaEmpresa, repartoDaniel, repartoMichael 
+    };
   }
 
   const resultadosBusqueda = registrosFirebase.filter(reg => {
     if (terminoBusqueda.trim() === '') return false;
     if (tipoBusqueda === 'alumno') {
       const nombresAlumnos = Object.keys(reg.asistencia || {});
-      const alumnoEncontrado = nombresAlumnos.find(nombre => nombre.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+      const alumnoEncontrado = nombresAlumnos.find(nombre => (nombre || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
       if (!alumnoEncontrado) return false;
     } else if (tipoBusqueda === 'clase') {
       const matchClase = reg.clase && reg.clase.toLowerCase().includes(terminoBusqueda.toLowerCase());
@@ -427,6 +459,9 @@ function App() {
 
   const misClases = profesorSeleccionado ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) : [];
 
+  // ==========================================
+  // 6. CONTROLADORES DE EVENTOS (HANDLERS)
+  // ==========================================
   const handleEliminarAlumno = async (id) => {
     if(window.confirm('⚠️ ¿Borrar este alumno del directorio de forma permanente?')) {
       await deleteDoc(doc(db, "alumnos", id)); setAlumnosFirebase(alumnosFirebase.filter(a => a.id !== id));
@@ -557,7 +592,12 @@ function App() {
   }
 
   const handleLoginProfesor = (e) => {
-    e.preventDefault(); const partesNombre = profesorAAutenticar.nombre.split(' '); const iniciales = (partesNombre[0].charAt(0) + (partesNombre[1] ? partesNombre[1].charAt(0) : '')).toUpperCase(); const pinCorrecto = `${iniciales}2026`;
+    e.preventDefault(); 
+    const nombreProf = profesorAAutenticar?.nombre || '';
+    const partesNombre = nombreProf.split(' '); 
+    const iniciales = ((partesNombre[0]?.charAt(0) || '') + (partesNombre[1]?.charAt(0) || '')).toUpperCase(); 
+    const pinCorrecto = `${iniciales}2026`;
+    
     if (pinInput.toUpperCase() === pinCorrecto) { setProfesorSeleccionado(profesorAAutenticar); setProfesorAAutenticar(null); setPinInput(''); setErrorPin(false); } else { setErrorPin(true); setTimeout(() => setErrorPin(false), 3000); }
   }
 
@@ -569,7 +609,7 @@ function App() {
     e.preventDefault();
     const alumnoEncontrado = alumnosFirebase.find(a => a.tipoDoc === loginAlumnoTipoDoc && a.numDoc === loginAlumnoNumDoc);
     if(alumnoEncontrado) {
-      if (alumnoEncontrado.activo === false) { alert("Tu usuario ha sido dado de baja. Comunícate con administración."); return; }
+      if (alumnoEncontrado.activo === false) { triggerError("Tu usuario ha sido dado de baja. Comunícate con administración."); return; }
       setAlumnoSeleccionado(alumnoEncontrado.nombre); setModoIngreso('inicio'); setLoginAlumnoNumDoc(''); setErrorLoginAlumno(false);
     } else { setErrorLoginAlumno(true); setTimeout(() => setErrorLoginAlumno(false), 3000); }
   }
@@ -579,7 +619,7 @@ function App() {
   const handleGuardarRegistro = async () => {
     let formularioCompleto = true;
     if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false;
-    claseSeleccionada.estudiantes.forEach(estudiante => { 
+    (claseSeleccionada.estudiantes || []).forEach(estudiante => { 
       const ast = asistencia[estudiante]; if (!ast) formularioCompleto = false;
       if (ast === 'asistio' || ast === 'reprogramo') {
         const n = notas[estudiante]; if (!n || (!n.oral && !n.grammar && !n.reading && !n.listening && !n.writing)) { formularioCompleto = false; }
@@ -588,7 +628,7 @@ function App() {
     if (formularioCompleto) {
       try {
         await addDoc(collection(db, "registrosClases"), {
-          profesor: profesorSeleccionado.nombre, clase: claseSeleccionada.titulo, nivel: claseSeleccionada.curso,
+          profesor: profesorSeleccionado?.nombre || 'Docente', clase: claseSeleccionada.titulo, nivel: claseSeleccionada.curso,
           fecha: fechaClase, horas: Number(horasClase), tarifa: claseSeleccionada.tarifa, asistencia: asistencia, notas: notas, observacionesIndividuales: obsIndividual, observacionGeneral: obsGeneral, fechaRegistro: new Date().toISOString()
         });
         setMensajeExito('¡Registro guardado exitosamente! ☁️✅'); setTimeout(() => setMensajeExito(''), 4000);
@@ -602,6 +642,9 @@ function App() {
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
+  // ==========================================
+  // 7. ESTILOS GLOBALES
+  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -635,6 +678,9 @@ function App() {
     `}</style>
   )
 
+  // ==========================================
+  // VISTA 1: INICIO SPLIT
+  // ==========================================
   if (modoIngreso === 'inicio' && !alumnoSeleccionado && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -653,10 +699,14 @@ function App() {
     )
   }
 
+  // ==========================================
+  // VISTA 2: LOGIN ALUMNO
+  // ==========================================
   if (modoIngreso === 'alumno' && !alumnoSeleccionado) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
         {estilosGlobales}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '12px 24px', borderRadius: '12px', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}><strong>⚠️ Error: </strong>{mensajeError}</div>)}
         <button onClick={() => setModoIngreso('inicio')} style={{ position: 'absolute', top: 30, left: 30, background: 'white', border: '1px solid #d1d5db', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', color: '#4b5563' }}>← Volver</button>
         <div className="login-card" style={{ animation: errorLoginAlumno ? 'vibrar 0.3s ease' : 'none' }}>
           <h2 style={{ color: '#111827', fontSize: '22px', marginBottom: '10px' }}>🎓 Portal del Alumno</h2>
@@ -680,6 +730,9 @@ function App() {
     )
   }
 
+  // ==========================================
+  // VISTA 3: DASHBOARD ALUMNO
+  // ==========================================
   if (alumnoSeleccionado) {
     const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
     const pagosAlumno = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
@@ -703,7 +756,10 @@ function App() {
     return (
       <div style={{ backgroundColor: '#f4f6f8', minHeight: '100vh', padding: '40px 20px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
         {estilosGlobales}
+        {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
+
         <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.4s ease' }}>
+          
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '50px' }} />
@@ -780,7 +836,7 @@ function App() {
                       <span style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(pago.fechaRegistro).toLocaleDateString()}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                      <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>S/. {pago.monto.toFixed(2)}</span>
+                      <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>S/. {Number(pago.monto || 0).toFixed(2)}</span>
                       <button onClick={() => generarPDFRecibo(pago)} className="btn-flotante" style={{ background: '#3b82f6', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', color: 'white', fontWeight: 'bold' }}>
                         Descargar
                       </button>
@@ -796,10 +852,14 @@ function App() {
     )
   }
 
+  // ==========================================
+  // VISTA 4: LOGIN STAFF
+  // ==========================================
   if (modoIngreso === 'staff' && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
         {estilosGlobales}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '12px 24px', borderRadius: '12px', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}><strong>⚠️ Error: </strong>{mensajeError}</div>)}
         <button onClick={() => setModoIngreso('inicio')} style={{ position: 'absolute', top: 30, left: 30, background: 'white', border: '1px solid #d1d5db', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', color: '#4b5563' }}>← Volver</button>
         <div className="login-card" style={{ animation: errorLoginGlobal ? 'vibrar 0.3s ease' : 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '10px' }}>
@@ -823,7 +883,9 @@ function App() {
     )
   }
 
-  // 5. VISTA ADMIN
+  // ==========================================
+  // VISTA 5: ADMIN DASHBOARD
+  // ==========================================
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
     const finanzas = calcularFinanzas();
@@ -831,16 +893,18 @@ function App() {
     return (
       <>
         {estilosGlobales}
-        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos por llenar'}</h4></div></div>)}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos'}</h4></div></div>)}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
         <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#f4f6f8' }}>
+          
           <div style={{ width: '280px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '40px', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
               <h1 style={{ margin: 0, fontSize: '18px', color: '#111827' }}>Admin Panel</h1>
               <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#6b7280' }}>Centro de Operaciones</p>
             </div>
+            
             <div style={{ padding: '20px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto' }}>
               <button className={`admin-menu-btn ${adminTab === 'reportes' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('reportes')}><span style={{ fontSize: '20px' }}>📈</span> Reportes Alumnos</button>
               <button className={`admin-menu-btn ${adminTab === 'directorio_alumnos' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('directorio_alumnos')}><span style={{ fontSize: '20px' }}>👥</span> Directorio Alumnos</button>
@@ -849,14 +913,18 @@ function App() {
               <button className={`admin-menu-btn ${adminTab === 'clases' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('clases')}><span style={{ fontSize: '20px' }}>📚</span> Gestión de Clases</button>
               <button className={`admin-menu-btn ${adminTab === 'profesores' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('profesores')}><span style={{ fontSize: '20px' }}>👔</span> Directorio Profesores</button>
             </div>
+            
             <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb' }}>
-              <button onClick={() => setVistaAdmin(false)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#4b5563', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>🚪 Salir del Admin</button>
+              <button onClick={() => setVistaAdmin(false)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#4b5563', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                🚪 Salir del Admin
+              </button>
             </div>
           </div>
 
           <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
+              {/* REPORTES */}
               {adminTab === 'reportes' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -925,7 +993,7 @@ function App() {
                             {resultadosBusqueda.map((reg, idx) => {
                                 const nombres = Object.keys(reg.asistencia || {});
                                 let alumnosAMostrar = nombres;
-                                if (tipoBusqueda === 'alumno') { const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase())); if (match) alumnosAMostrar = [match]; }
+                                if (tipoBusqueda === 'alumno') { const match = nombres.find(n => (n||'').toLowerCase().includes(terminoBusqueda.toLowerCase())); if (match) alumnosAMostrar = [match]; }
                                 const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase); const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
                                 return alumnosAMostrar.map((alum, subIdx) => {
                                   const estado = reg.asistencia?.[alum]; const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
@@ -933,9 +1001,9 @@ function App() {
                                   const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
                                   return (
                                     <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                                        <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha}</td><td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum}</td>
-                                        <td style={{ padding: '12px' }}>{reg.clase} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td><td style={{ padding: '12px' }}>{reg.profesor}</td>
-                                        <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado?.replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
+                                        <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha || '--'}</td><td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum || '--'}</td>
+                                        <td style={{ padding: '12px' }}>{reg.clase || '--'} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td><td style={{ padding: '12px' }}>{reg.profesor || '--'}</td>
+                                        <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{(estado||'--').replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                                         <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
                                         <td style={{ padding: '12px', textAlign: 'center' }}>
                                           <button onClick={() => handleEliminarRegistroClase(reg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Borrar registro completo de esta sesión">🗑️</button>
@@ -952,11 +1020,12 @@ function App() {
                 </div>
               )}
 
+              {/* DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno</h2>
                       <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
                       <form onSubmit={handleAgregarAlumno} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
@@ -989,11 +1058,11 @@ function App() {
                       </div>
                       <input type="text" placeholder="🔍 Buscar por nombre o número de documento..." value={busquedaDirectorio} onChange={(e) => setBusquedaDirectorio(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', marginBottom: '15px', boxSizing: 'border-box' }} />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-                        {alumnosFirebase.filter(a => a.nombre.toLowerCase().includes(busquedaDirectorio.toLowerCase()) || a.numDoc.includes(busquedaDirectorio)).map(alum => (
+                        {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
                           <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre}</span>
-                              <span style={{ fontSize: '11px', color: '#6b7280' }}>{alum.tipoDoc}: {alum.numDoc}</span>
+                              <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
+                              <span style={{ fontSize: '11px', color: '#6b7280' }}>{alum.tipoDoc || 'DOC'}: {alum.numDoc || '--'}</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <button onClick={() => handleToggleActivoAlumno(alum.id, alum.activo !== false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', color: alum.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}>
@@ -1003,13 +1072,14 @@ function App() {
                             </div>
                           </div>
                         ))}
-                        {alumnosFirebase.filter(a => a.nombre.toLowerCase().includes(busquedaDirectorio.toLowerCase()) || a.numDoc.includes(busquedaDirectorio)).length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No hay resultados de búsqueda.</p>}
+                        {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No hay resultados de búsqueda.</p>}
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* RENDIMIENTO */}
               {adminTab === 'rendimiento' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -1027,8 +1097,8 @@ function App() {
                       {calcularMetricasDocentes().map((metrica, idx) => (
                         <div key={idx} style={{ backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div className="avatar" style={{ backgroundColor: metrica.color, width: '36px', height: '36px', fontSize: '14px' }}>{metrica.nombre.charAt(0)}</div>
-                            <span style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>{metrica.nombre}</span>
+                            <div className="avatar" style={{ backgroundColor: metrica.color, width: '36px', height: '36px', fontSize: '14px' }}>{(metrica.nombre || '?').charAt(0)}</div>
+                            <span style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>{metrica.nombre || 'Docente'}</span>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                             <div style={{ backgroundColor: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
@@ -1054,6 +1124,7 @@ function App() {
                 </div>
               )}
 
+              {/* FINANZAS */}
               {adminTab === 'finanzas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1197,13 +1268,13 @@ function App() {
                         {pagosFirebase.filter(p => matchFiltroFinanzas(p.mes)).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro)).map((pago, idx) => (
                           <div key={pago.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{pago.alumno}</span>
-                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>Reg: {new Date(pago.fechaRegistro).toLocaleDateString()}</span>
+                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{pago.alumno || '--'}</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>Reg: {pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>+ S/. {pago.monto.toFixed(2)}</span>
-                                <span style={{ fontSize: '11px', color: '#6b7280' }}>Mes: {pago.mes}</span>
+                                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>+ S/. {Number(pago.monto || 0).toFixed(2)}</span>
+                                <span style={{ fontSize: '11px', color: '#6b7280' }}>Mes: {pago.mes || '--'}</span>
                               </div>
                               <button onClick={() => generarPDFRecibo(pago)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '16px' }} title="Descargar Boleta PDF">📄</button>
                               <button onClick={() => handleEliminarPago(pago.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
@@ -1219,12 +1290,12 @@ function App() {
                         {movimientosExtra.filter(m => matchFiltroFinanzas(m.mes)).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro)).map((mov, idx) => (
                           <div key={mov.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: `1px solid ${mov.tipo === 'ingreso_extra' ? '#bbf7d0' : '#fecdd3'}` }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{mov.concepto}</span>
-                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(mov.fechaRegistro).toLocaleDateString()}</span>
+                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{mov.concepto || '--'}</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{mov.fechaRegistro ? new Date(mov.fechaRegistro).toLocaleDateString() : '--'}</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ fontSize: '16px', fontWeight: 'bold', color: mov.tipo === 'ingreso_extra' ? '#059669' : '#e11d48' }}>
-                                  {mov.tipo === 'ingreso_extra' ? '+' : '-'} S/. {mov.monto.toFixed(2)}
+                                  {mov.tipo === 'ingreso_extra' ? '+' : '-'} S/. {Number(mov.monto || 0).toFixed(2)}
                               </span>
                               <button onClick={() => handleEliminarMovimiento(mov.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar">🗑️</button>
                             </div>
@@ -1236,7 +1307,7 @@ function App() {
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - CLASES */}
+              {/* CLASES */}
               {adminTab === 'clases' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -1275,7 +1346,6 @@ function App() {
                           </select>
                         </div>
                       </div>
-                      
                       <div>
                         <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Estudiantes (Pre-registrados en el Directorio)</label>
                         <div className="scroll-casillas" style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', padding: '12px', backgroundColor: '#f9fafb' }}>
@@ -1300,14 +1370,13 @@ function App() {
                       <h2 style={{ margin: 0, fontSize: '20px', color: '#374151' }}>{verArchivadasAdmin ? '🗂️ Clases Archivadas' : '🟢 Clases Activas'}</h2>
                       <button type="button" onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} className="btn-flotante" style={{ background: '#f3f4f6', border: '1px solid #d1d5db', color: '#374151', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>{verArchivadasAdmin ? 'Ver Activas' : 'Ver Archivadas'}</button>
                     </div>
-                    
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
                       {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).map(clase => (
                         <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '16px', borderRadius: '12px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.7 : 1 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <span style={{ fontSize: '15px', fontWeight: '600', color: clase.archivada ? '#6b7280' : '#111827' }}>{clase.titulo}</span>
-                            <span style={{ fontSize: '12px', color: '#6b7280' }}>{clase.curso}</span>
-                            <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId.substring(0,5)}...</span>
+                            <span style={{ fontSize: '15px', fontWeight: '600', color: clase.archivada ? '#6b7280' : '#111827' }}>{clase.titulo || 'Sin Título'}</span>
+                            <span style={{ fontSize: '12px', color: '#6b7280' }}>{clase.curso || '--'}</span>
+                            <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId ? clase.profesorId.substring(0,5) : 'N/A'}...</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <button onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}>{clase.archivada ? 'Desarchivar' : 'Archivar'}</button>
@@ -1320,7 +1389,7 @@ function App() {
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - PROFESORES */}
+              {/* PROFESORES */}
               {adminTab === 'profesores' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1342,9 +1411,9 @@ function App() {
                         {profesores.map(prof => (
                           <div key={prof.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: prof.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <div className="avatar" style={{ backgroundColor: prof.activo !== false ? prof.color : '#9ca3af', width: '36px', height: '36px', fontSize: '14px' }}>{prof.nombre.charAt(0)}</div>
+                              <div className="avatar" style={{ backgroundColor: prof.activo !== false ? prof.color : '#9ca3af', width: '36px', height: '36px', fontSize: '14px' }}>{(prof.nombre||'?').charAt(0)}</div>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ fontSize: '14px', fontWeight: '600', color: prof.activo !== false ? '#374151' : '#9ca3af', textDecoration: prof.activo !== false ? 'none' : 'line-through' }}>{prof.nombre}</span>
+                                <span style={{ fontSize: '14px', fontWeight: '600', color: prof.activo !== false ? '#374151' : '#9ca3af', textDecoration: prof.activo !== false ? 'none' : 'line-through' }}>{prof.nombre || 'Sin Nombre'}</span>
                                 <span style={{ fontSize: '11px', color: '#6b7280' }}>ID: {prof.id.substring(0,8)}</span>
                               </div>
                             </div>
@@ -1358,7 +1427,6 @@ function App() {
                         ))}
                       </div>
                     </div>
-
                   </div>
                 </div>
               )}
@@ -1370,7 +1438,214 @@ function App() {
     )
   }
 
-  // 7. SELECCIÓN DE PROFESORES DESPUES DE LOGIN STAFF
+  // ==========================================
+  // VISTA 6: DASHBOARD DE PROFESOR
+  // ==========================================
+  if (profesorSeleccionado) {
+    let mesPrefixPlanilla = "";
+    if (mesPlanilla === "2026-08") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "2026-07") mesPrefixPlanilla = "2026-07";
+    const registrosMesProfesor = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla)));
+    const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
+
+    let totalNotas = 0; let countNotas = 0;
+    if (claseSeleccionada) {
+      const registrosDeEstaClase = registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo);
+      registrosDeEstaClase.forEach(reg => {
+        if (reg.notas) { Object.values(reg.notas).forEach(nota => { 
+          const val = typeof nota === 'object' ? getPromedio(nota) : parseFloat(nota); 
+          if (!isNaN(val)) { totalNotas += parseFloat(val); countNotas++; }
+        });}
+      });
+    }
+    const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
+
+    return (
+      <>
+        {estilosGlobales}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos obligatorios'}</h4></div></div>)}
+        {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
+
+        {mostrarModalExportar && (
+          <>
+            <div onClick={() => setMostrarModalExportar(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '400px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transformOrigin: 'top left', animation: 'aparecerFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
+                <div><h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>Exportar Reporte</h2><p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>Clase: <strong>{claseSeleccionada?.titulo}</strong></p></div>
+                <button onClick={() => setMostrarModalExportar(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
+              </div>
+              <div style={{ marginBottom: '24px', textAlign: 'left' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Selecciona el periodo:</label>
+                <select value={mesExportar} onChange={(e) => setMesExportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
+                  <option value="Agosto 2026">Agosto 2026</option>
+                  <option value="Julio 2026">Julio 2026</option>
+                  <option value="todo">📚 Exportar todo el historial</option>
+                </select>
+              </div>
+              <button onClick={generarPDFReporteClase} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF</button>
+            </div>
+          </>
+        )}
+
+        {mostrarPlanilla && (
+          <>
+            <div onClick={() => setMostrarPlanilla(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '500px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transformOrigin: 'top left', animation: 'aparecerFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
+                <div><h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>Resumen de Pago Mensual</h2><p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>Profesor: <strong>{profesorSeleccionado.nombre}</strong></p></div>
+                <button onClick={() => setMostrarPlanilla(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
+              </div>
+              <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Periodo a facturar:</label>
+                <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
+                  <option value="2026-08">Agosto 2026</option>
+                  <option value="2026-07">Julio 2026</option>
+                </select>
+              </div>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Monto a cobrar</p>
+                <h1 style={{ margin: '8px 0', color: '#059669', fontSize: '36px' }}>S/. {montoCalculadoPantalla.toFixed(2)}</h1>
+                <p style={{ margin: 0, color: '#9ca3af', fontSize: '12px' }}>Cálculo basado en las horas registradas este periodo.</p>
+              </div>
+              <button onClick={generarPDFPlanilla} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF Oficial</button>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', height: '100vh', backgroundColor: '#f4f6f8' }}>
+          <div style={{ width: '300px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb' }}>
+              <button onClick={handleCerrarSesionProfesor} className="btn-flotante" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', marginLeft: '-10px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '5px' }}>← Cerrar Sesión</button>
+              <div style={{ marginBottom: '15px', textAlign: 'left' }}>
+                <img src="/boss_accredible.png" alt="Logo" style={{ width: '90px', height: 'auto', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+                <div><h2 style={{ margin: '0 0 2px 0', fontSize: '18px', color: '#111827' }}>Mis Clases</h2><p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Cursos asignados</p></div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 12px', overflowY: 'auto', flex: 1 }}>
+              {misClases.length === 0 ? (
+                <p style={{ color: '#9ca3af', textAlign: 'center', fontSize: '13px', marginTop: '20px' }}>No tienes clases asignadas aún.</p>
+              ) : (
+                misClases.map((clase) => (
+                  <div key={clase.id} onClick={() => setClaseSeleccionada(clase)} className="btn-flotante" style={{ padding: '12px 16px', borderRadius: '12px', cursor: 'pointer', marginBottom: '8px', backgroundColor: claseSeleccionada?.id === clase.id ? '#eff6ff' : 'transparent', border: claseSeleccionada?.id === clase.id ? '1px solid #bfdbfe' : '1px solid transparent', textAlign: 'center' }}>
+                    <h4 style={{ margin: 0, color: claseSeleccionada?.id === clase.id ? '#1d4ed8' : '#374151', fontSize: '14px' }}>{clase.titulo}</h4>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6b7280' }}>{(clase.estudiantes||[]).length} alumno(s) • {clase.curso}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+              <button onClick={() => setMostrarPlanilla(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>📊 Ver y Exportar Pago</button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto' }}>
+            {claseSeleccionada ? (
+              <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', maxWidth: '900px', margin: '0 auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}></div>
+                    <div style={{ flex: 2, textAlign: 'center' }}>
+                      <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>Registro de Clase</h1>
+                      <p style={{ margin: '8px 0 0 0', color: '#6b7280', fontSize: '15px' }}>Clase seleccionada: <strong style={{ color: '#374151' }}>{claseSeleccionada.titulo}</strong></p>
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                      <button onClick={() => setMostrarModalExportar(true)} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>📄 Exportar Reporte</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
+                    {editandoCurso ? (
+                      <>
+                        <input type="text" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} className="input-flotante" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', outline: 'none', fontSize: '13px', width: '200px' }} />
+                        <button onClick={handleActualizarCurso} style={{ background: '#10b981', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Guardar</button>
+                        <button onClick={() => setEditandoCurso(false)} style={{ background: '#ef4444', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
+                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }}>✏️</button>
+                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '32px' }}>
+                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>Desempeño Individual</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {(claseSeleccionada.estudiantes || []).map((estudiante, index) => (
+                      <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
+                          <h4 style={{ margin: 0, color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'asistio'})} style={obtenerEstiloBoton(estudiante, 'asistio', '#86efac', '#dcfce7', '#166534')}>Asistió</button>
+                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'no-asistio'})} style={obtenerEstiloBoton(estudiante, 'no-asistio', '#fca5a5', '#fee2e2', '#991b1b')}>No asistió</button>
+                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'reprogramo'})} style={obtenerEstiloBoton(estudiante, 'reprogramo', '#fcd34d', '#fef3c7', '#92400e')}>Reprogramó</button>
+                          </div>
+                        </div>
+
+                        {(asistencia[estudiante] === 'asistio' || asistencia[estudiante] === 'reprogramo') && (
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: '600', width: '100%', textAlign: 'center', marginBottom: '4px' }}>
+                              Evaluación Diaria (1-20) {asistencia[estudiante] === 'reprogramo' ? '- Clase Reprogramada' : ''}
+                            </div>
+                            {['oral', 'grammar', 'reading', 'listening', 'writing'].map(skill => (
+                              <div key={skill} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '10px', color: '#3b82f6', fontWeight: '700', textTransform: 'uppercase' }}>{skill}</span>
+                                <select
+                                  value={notas[estudiante]?.[skill] || ''}
+                                  onChange={(e) => setNotas({...notas, [estudiante]: {...(notas[estudiante] || {}), [skill]: e.target.value}})}
+                                  style={{ width: '50px', padding: '6px 4px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px', textAlign: 'center', outline: 'none', backgroundColor: 'white', color: '#111827', cursor: 'pointer' }}
+                                >
+                                  <option value="">--</option>
+                                  {[...Array(20)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ width: '100%' }}>
+                          <input className="input-flotante" type="text" placeholder={`Observaciones sobre ${estudiante} (Opcional)`} value={obsIndividual[estudiante] || ''} onChange={(e) => setObsIndividual({...obsIndividual, [estudiante]: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Fecha (Real)</label>
+                    <input className="input-flotante" type="date" value={fechaClase} onChange={(e) => setFechaClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Horas (Real)</label>
+                    <input className="input-flotante" type="number" step="0.5" placeholder="Ej: 1.5" value={horasClase} onChange={(e) => setHorasClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Tarifa</label>
+                    <input className="input-flotante" type="text" value={`S/. ${claseSeleccionada.tarifa} / hr`} disabled style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', color: '#6b7280', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '32px' }}>
+                  <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Observaciones Generales</label>
+                  <textarea className="input-flotante" rows="3" placeholder="Detalles sobre temas vistos, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
+                </div>
+                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>Guardar Registro Completo</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+                <h3>Selecciona una clase del panel izquierdo para comenzar</h3>
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  // ==========================================
+  // VISTA 7: SELECCIÓN DE PROFESOR (POST-LOGIN STAFF)
+  // ==========================================
   if (accesoGlobal && !vistaAdmin && !profesorSeleccionado) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', backgroundColor: '#f4f6f8' }}>
@@ -1394,8 +1669,8 @@ function App() {
           <>
             <div onClick={() => {setProfesorAAutenticar(null); setErrorPin(false); setPinInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
             <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-              <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: profesorAAutenticar.color, color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>{profesorAAutenticar.nombre.charAt(0)}</div>
-              <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Hola, {profesorAAutenticar.nombre.split(' ')[0]}</h2>
+              <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: profesorAAutenticar.color, color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>{(profesorAAutenticar.nombre||'?').charAt(0)}</div>
+              <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Hola, {(profesorAAutenticar.nombre||'Profesor').split(' ')[0]}</h2>
               <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa tu PIN de seguridad.</p>
               <form onSubmit={handleLoginProfesor}>
                 <input type="password" placeholder="PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
@@ -1420,9 +1695,9 @@ function App() {
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
           {profesores.filter(p => p.activo !== false).map((profesor) => (
             <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion" style={{ backgroundColor: 'white' }}>
-              <div className="avatar" style={{ backgroundColor: profesor.color }}>{profesor.nombre.charAt(0)}</div>
+              <div className="avatar" style={{ backgroundColor: profesor.color }}>{(profesor.nombre||'?').charAt(0)}</div>
               <div className="textos" style={{ textAlign: 'left' }}>
-                <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre}</h2>
+                <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre || 'Sin Nombre'}</h2>
                 <p style={{ margin: 0, fontSize: '13px', color: '#5f6368' }}>Language Teacher</p>
               </div>
             </div>
@@ -1438,6 +1713,7 @@ function App() {
     )
   }
 
+  // FALLBACK SEGURO
   return null;
 }
 
