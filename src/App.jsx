@@ -56,7 +56,7 @@ function App() {
   const [editandoCurso, setEditandoCurso] = useState(false)
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
 
-  const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false) // NUEVO: Estado para el filtro visual
+  const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false)
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -582,6 +582,7 @@ function App() {
 
           <div style={{ display: 'flex', gap: '20px', width: '100%', maxWidth: '1000px', flexWrap: 'wrap' }}>
             
+            {/* SECCION 1: PROFESOR */}
             <div style={{ flex: '1 1 300px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👤 1. Nuevo Profesor</h2>
               <form onSubmit={handleAgregarProfesor} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -611,6 +612,7 @@ function App() {
               </div>
             </div>
 
+            {/* SECCION 2: CLASE */}
             <div style={{ flex: '2 1 500px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📚 2. Nueva Clase / Curso</h2>
               <form onSubmit={handleAgregarClase} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -659,48 +661,9 @@ function App() {
 
                 <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '10px' }}>Crear y Asignar Clase</button>
               </form>
-
-              <div style={{ marginTop: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h3 style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
-                    {verArchivadasAdmin ? '🗂️ Clases Archivadas' : '🟢 Clases Activas'}
-                  </h3>
-                  <button 
-                    type="button" 
-                    onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} 
-                    style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-                  >
-                    {verArchivadasAdmin ? 'Ver Activas' : 'Ver Archivadas'}
-                  </button>
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '5px' }}>
-                  {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).map(clase => (
-                    <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.6 : 1 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '14px', fontWeight: '600', color: clase.archivada ? '#9ca3af' : '#374151' }}>{clase.titulo}</span>
-                        <span style={{ fontSize: '11px', color: '#6b7280' }}>{clase.curso}</span>
-                      </div>
-                      <button 
-                        onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)}
-                        className="btn-flotante"
-                        style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '11px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}
-                      >
-                        {clase.archivada ? 'Desarchivar' : 'Archivar'}
-                      </button>
-                    </div>
-                  ))}
-                  
-                  {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).length === 0 && (
-                    <p style={{ color: '#9ca3af', fontSize: '12px', textAlign: 'center', margin: '20px 0' }}>
-                      No hay clases {verArchivadasAdmin ? 'archivadas' : 'activas'}.
-                    </p>
-                  )}
-                </div>
-              </div>
-
             </div>
 
+            {/* SECCION 3: REPORTES */}
             <div style={{ flex: '1 1 100%', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginTop: '10px' }}>
               <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 3. Expediente de Alumnos y Reportes</h2>
               
@@ -802,6 +765,50 @@ function App() {
                   </table>
                 )}
               </div>
+            </div>
+
+            {/* SECCION 4: GESTION DE CLASES */}
+            <div style={{ flex: '1 1 100%', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '20px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#374151' }}>
+                  {verArchivadasAdmin ? '🗂️ 4. Clases Archivadas' : '🟢 4. Clases Activas'}
+                </h2>
+                <button 
+                  type="button" 
+                  onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} 
+                  className="btn-flotante"
+                  style={{ background: '#f3f4f6', border: '1px solid #d1d5db', color: '#374151', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  {verArchivadasAdmin ? 'Cambiar a Activas' : 'Cambiar a Archivadas'}
+                </button>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).map(clase => (
+                  <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '16px', borderRadius: '12px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.7 : 1, transition: 'all 0.2s ease' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '15px', fontWeight: '600', color: clase.archivada ? '#6b7280' : '#111827' }}>{clase.titulo}</span>
+                      <span style={{ fontSize: '12px', color: '#6b7280' }}>{clase.curso}</span>
+                      <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId.substring(0,5)}...</span>
+                    </div>
+                    <button 
+                      onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)}
+                      className="btn-flotante"
+                      style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}
+                    >
+                      {clase.archivada ? 'Desarchivar' : 'Archivar'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              
+              {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).length === 0 && (
+                <div style={{ padding: '30px', textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
+                  <p style={{ color: '#6b7280', fontSize: '14px', margin: 0 }}>
+                    No hay clases {verArchivadasAdmin ? 'archivadas' : 'activas'} en la base de datos.
+                  </p>
+                </div>
+              )}
             </div>
 
           </div>
