@@ -5,7 +5,8 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 function App() {
-  const [modoIngreso, setModoIngreso] = useState('inicio') 
+  // CONTROL DE PANTALLAS DE INICIO
+  const [modoIngreso, setModoIngreso] = useState('inicio') // 'inicio', 'staff', 'alumno'
   
   const [accesoGlobal, setAccesoGlobal] = useState(false)
   const [usuarioGlobal, setUsuarioGlobal] = useState('')
@@ -19,6 +20,7 @@ function App() {
   const [profesorSeleccionado, setProfesorSeleccionado] = useState(null)
   const [claseSeleccionada, setClaseSeleccionada] = useState(null)
   
+  // LOGIN ALUMNO CON DOCUMENTOS
   const [loginAlumnoTipoDoc, setLoginAlumnoTipoDoc] = useState('DNI')
   const [loginAlumnoNumDoc, setLoginAlumnoNumDoc] = useState('')
   const [errorLoginAlumno, setErrorLoginAlumno] = useState(false)
@@ -38,6 +40,7 @@ function App() {
   const [horasClase, setHorasClase] = useState('')
   const [obsGeneral, setObsGeneral] = useState('')
 
+  // DATOS DE FIREBASE
   const [profesores, setProfesores] = useState([])
   const [alumnosFirebase, setAlumnosFirebase] = useState([]) 
   const [clasesFirebase, setClasesFirebase] = useState([]) 
@@ -52,6 +55,7 @@ function App() {
 
   const [adminTab, setAdminTab] = useState('reportes')
 
+  // FORMULARIOS DE REGISTRO
   const [nombreNuevoProfesor, setNombreNuevoProfesor] = useState('')
   const [nuevoAlumnoNombre, setNuevoAlumnoNombre] = useState('')
   const [nuevoAlumnoTipoDoc, setNuevoAlumnoTipoDoc] = useState('DNI')
@@ -107,8 +111,8 @@ function App() {
         console.error("Error al cargar datos:", error);
       }
     };
-    cargarDatos();
-  }, [mensajeExito]); 
+    if (accesoGlobal || modoIngreso === 'alumno') cargarDatos();
+  }, [accesoGlobal, modoIngreso, mensajeExito]); 
 
   const todosLosAlumnos = Array.from(new Set([
     ...alumnosFirebase.map(a => a.nombre),
@@ -412,9 +416,6 @@ function App() {
     };
   }
 
-  // ====================================================
-  // NUEVAS FUNCIONES: DAR DE BAJA ALUMNO Y REACTIVAR
-  // ====================================================
   const handleToggleActivoAlumno = async (id, estadoActual) => {
     try {
       const alumRef = doc(db, "alumnos", id);
@@ -469,7 +470,6 @@ function App() {
     e.preventDefault();
     if (!nuevoAlumnoNombre || !nuevoAlumnoNumDoc) return;
     try {
-      // NUEVO: El alumno se crea con "activo: true" por defecto
       await addDoc(collection(db, "alumnos"), { nombre: nuevoAlumnoNombre, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, fechaRegistro: new Date().toISOString(), activo: true });
       setNuevoAlumnoNombre(''); setNuevoAlumnoNumDoc('');
       setMensajeExito('Alumno registrado en el Directorio ✅'); setTimeout(() => setMensajeExito(''), 3000);
@@ -587,7 +587,6 @@ function App() {
     e.preventDefault();
     const alumnoEncontrado = alumnosFirebase.find(a => a.tipoDoc === loginAlumnoTipoDoc && a.numDoc === loginAlumnoNumDoc);
     if(alumnoEncontrado) {
-      // Validamos si está activo
       if (alumnoEncontrado.activo === false) {
         alert("Tu usuario ha sido dado de baja. Comunícate con administración.");
         return;
@@ -668,6 +667,7 @@ function App() {
     `}</style>
   )
 
+  // 1. PANTALLA INICIAL (SPLIT)
   if (modoIngreso === 'inicio' && !alumnoSeleccionado && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -692,6 +692,7 @@ function App() {
     )
   }
 
+  // 2. LOGIN ALUMNO
   if (modoIngreso === 'alumno' && !alumnoSeleccionado) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -720,6 +721,7 @@ function App() {
     )
   }
 
+  // 3. DASHBOARD ALUMNO
   if (alumnoSeleccionado) {
     const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
     const pagosAlumno = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
@@ -838,6 +840,7 @@ function App() {
     )
   }
 
+  // 4. LOGIN STAFF GLOBALES
   if (modoIngreso === 'staff' && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -865,9 +868,7 @@ function App() {
     )
   }
 
-  // ====================================================
-  // VISTA PANEL DE ADMINISTRADOR
-  // ====================================================
+  // 5. DASHBOARD ADMIN
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
     const finanzas = calcularFinanzas();
@@ -1014,7 +1015,6 @@ function App() {
                 </div>
               )}
 
-              {/* NUEVA PESTAÑA: DIRECTORIO DE ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1053,7 +1053,7 @@ function App() {
                         {alumnosFirebase.map(alum => (
                           <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre}</span>
+                              <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textTransform: 'capitalize' }}>{alum.nombre}</span>
                               <span style={{ fontSize: '11px', color: '#6b7280' }}>{alum.tipoDoc}: {alum.numDoc}</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1122,7 +1122,7 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ margin: '0 0 20px', fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
+                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
                     <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
                       <option value="todo">Historial Completo</option>
                       <option value="2026">Todo el 2026 (Anual)</option>
@@ -1409,6 +1409,7 @@ function App() {
     )
   }
 
+  // 6. DASHBOARD PROFESOR
   if (profesorSeleccionado) {
     let mesPrefixPlanilla = "";
     if (mesPlanilla === "2026-08") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "2026-07") mesPrefixPlanilla = "2026-07";
@@ -1611,7 +1612,45 @@ function App() {
     )
   }
 
-  // DEFAULT
+  // 7. PANTALLA SELECCIÓN DE PROFESOR (ESTO EVITA LA PANTALLA BLANCA)
+  if (accesoGlobal && !vistaAdmin && !profesorSeleccionado) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', backgroundColor: '#f4f6f8' }}>
+        {estilosGlobales}
+        <div style={{ position: 'absolute', top: '25px', left: '30px' }}>
+          <button onClick={() => {setAccesoGlobal(false); setModoIngreso('inicio')}} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>🚪 Salir a Inicio</button>
+        </div>
+        <div style={{ position: 'absolute', top: '25px', right: '30px', display: 'flex', gap: '10px' }}>
+          <button onClick={() => setMostrarModalAdmin(true)} className="btn-flotante" style={{ background: '#111827', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>⚙️ Admin Panel</button>
+        </div>
+        <div style={{ marginTop: '20px', marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <img src="/boss_accredible.png" alt="Logo" style={{ width: '120px', height: 'auto', marginBottom: '15px' }} onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '30px' }}>Boss Language Center</h1>
+          <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>Selecciona tu perfil docente para iniciar clase</p>
+        </div>
+        
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
+          {profesores.filter(p => p.activo !== false).map((profesor) => (
+            <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion" style={{ backgroundColor: 'white' }}>
+              <div className="avatar" style={{ backgroundColor: profesor.color }}>{profesor.nombre.charAt(0)}</div>
+              <div className="textos" style={{ textAlign: 'left' }}>
+                <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre}</h2>
+                <p style={{ margin: 0, fontSize: '13px', color: '#5f6368' }}>Language Teacher</p>
+              </div>
+            </div>
+          ))}
+          {profesores.filter(p => p.activo !== false).length === 0 && (
+            <div style={{ padding: '20px', color: '#6b7280', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed #d1d5db', width: '100%', maxWidth: '320px' }}>
+              <p style={{ margin: 0 }}>No hay profesores registrados.</p>
+              <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>Usa el <strong>Panel Admin</strong> arriba a la derecha para agregar uno.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // FALLBACK SEGURO
   return null;
 }
 
