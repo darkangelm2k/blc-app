@@ -55,7 +55,6 @@ function App() {
 
   const [editandoCurso, setEditandoCurso] = useState(false)
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
-
   const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false)
 
   useEffect(() => {
@@ -82,194 +81,115 @@ function App() {
 
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
-
     try {
       const img = new Image();
       img.src = '/boss_accredible.png';
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
-      
+      await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
       const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
+      canvas.width = img.width; canvas.height = img.height;
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#FFFFFF'; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, img.width, img.height);
       const imgData = canvas.toDataURL('image/jpeg', 1.0);
-      
-      const imgWidth = 45; 
-      const imgHeight = (img.height / img.width) * imgWidth; 
-      
+      const imgWidth = 45; const imgHeight = (img.height / img.width) * imgWidth; 
       doc.addImage(imgData, 'JPEG', 14, 10, imgWidth, imgHeight);
       currentY = 10 + imgHeight + 15; 
-
     } catch (e) {
       console.log("Aviso: Logo no cargó, utilizando texto estándar.");
       currentY = 25;
     }
-
-    doc.setFontSize(24);
-    doc.setTextColor(37, 99, 235); 
-    doc.text(titulo, 14, currentY);
+    doc.setFontSize(24); doc.setTextColor(37, 99, 235); doc.text(titulo, 14, currentY);
     currentY += 10;
-
-    doc.setFontSize(11);
-    doc.setTextColor(55, 65, 81);
-    subtitulos.forEach((texto) => {
-      doc.text(texto, 14, currentY);
-      currentY += 6; 
-    });
-
+    doc.setFontSize(11); doc.setTextColor(55, 65, 81);
+    subtitulos.forEach((texto) => { doc.text(texto, 14, currentY); currentY += 6; });
     return currentY + 8; 
   };
 
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
-    
-    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [
-      `Profesor: ${profesorSeleccionado.nombre}`,
-      `Periodo: ${mesPlanilla}`,
-      `Centro: Boss Language Center SAC`
-    ]);
-
+    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado.nombre}`, `Periodo: ${mesPlanilla}`, `Centro: Boss Language Center SAC`]);
     let mesPrefix = "";
-    if (mesPlanilla === "Agosto 2026") mesPrefix = "2026-08";
-    else if (mesPlanilla === "Julio 2026") mesPrefix = "2026-07";
-
-    const registrosMes = registrosFirebase.filter(reg => 
-      reg.profesor === profesorSeleccionado.nombre && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))
-    );
-
+    if (mesPlanilla === "Agosto 2026") mesPrefix = "2026-08"; else if (mesPlanilla === "Julio 2026") mesPrefix = "2026-07";
+    const registrosMes = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix)));
     let totalPagar = 0;
     const tableData = registrosMes.map(reg => {
-      const monto = (reg.horas || 0) * (reg.tarifa || 0);
-      totalPagar += monto;
+      const monto = (reg.horas || 0) * (reg.tarifa || 0); totalPagar += monto;
       return [reg.fecha || '--', reg.clase || '--', `${reg.horas || 0} hrs`, `S/. ${reg.tarifa || 0}`, `S/. ${monto.toFixed(2)}`];
     });
-
-    autoTable(doc, {
-      startY: startY,
-      head: [['Fecha', 'Clase', 'Horas Impartidas', 'Tarifa/Hora', 'Subtotal']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [37, 99, 235] }, 
-      styles: { fontSize: 9, cellPadding: 3 }
-    });
-
-    doc.setFontSize(16);
-    doc.setTextColor(5, 150, 105); 
-    doc.text(`Total a Facturar: S/. ${totalPagar.toFixed(2)}`, 14, doc.lastAutoTable.finalY + 15);
-
-    doc.setFontSize(10);
-    doc.setTextColor(75, 85, 99);
-    doc.text("Instrucciones: Emitir el Recibo por Honorarios a Boss Language Center SAC (RUC: 20603806795).", 14, doc.lastAutoTable.finalY + 25);
-
+    autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Horas Impartidas', 'Tarifa/Hora', 'Subtotal']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 }});
+    doc.setFontSize(16); doc.setTextColor(5, 150, 105); doc.text(`Total a Facturar: S/. ${totalPagar.toFixed(2)}`, 14, doc.lastAutoTable.finalY + 15);
+    doc.setFontSize(10); doc.setTextColor(75, 85, 99); doc.text("Instrucciones: Emitir el Recibo por Honorarios a Boss Language Center SAC (RUC: 20603806795).", 14, doc.lastAutoTable.finalY + 25);
     doc.save(`Planilla_${profesorSeleccionado.nombre}_${mesPlanilla.replace(' ', '_')}.pdf`);
-    setMostrarPlanilla(false);
-    setMensajeExito('¡Planilla generada exitosamente! 💰✅');
-    setTimeout(() => setMensajeExito(''), 4000);
+    setMostrarPlanilla(false); setMensajeExito('¡Planilla generada exitosamente! 💰✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
   const generarPDFReporteClase = async () => {
     const doc = new jsPDF();
-    
     let periodoStr = mesExportar === 'todo' ? 'Historial Completo' : mesExportar;
-    
-    const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [
-      `Clase: ${claseSeleccionada.titulo}`,
-      `Nivel Actual: ${claseSeleccionada.curso}`,
-      `Profesor a cargo: ${profesorSeleccionado.nombre}`,
-      `Periodo: ${periodoStr}`
-    ]);
-
+    const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [`Clase: ${claseSeleccionada.titulo}`, `Nivel Actual: ${claseSeleccionada.curso}`, `Profesor a cargo: ${profesorSeleccionado.nombre}`, `Periodo: ${periodoStr}`]);
     let mesPrefix = "";
-    if (mesExportar === "Agosto 2026") mesPrefix = "2026-08";
-    else if (mesExportar === "Julio 2026") mesPrefix = "2026-07";
-    else if (mesExportar === "Junio 2026") mesPrefix = "2026-06";
-
-    const registrosFiltrados = registrosFirebase.filter(reg => 
-      reg.clase === claseSeleccionada.titulo && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))
-    ).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-
+    if (mesExportar === "Agosto 2026") mesPrefix = "2026-08"; else if (mesExportar === "Julio 2026") mesPrefix = "2026-07"; else if (mesExportar === "Junio 2026") mesPrefix = "2026-06";
+    const registrosFiltrados = registrosFirebase.filter(reg => reg.clase === claseSeleccionada.titulo && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
     const tableData = [];
     registrosFiltrados.forEach(reg => {
       const estudiantes = Object.keys(reg.asistencia || {});
       estudiantes.forEach(est => {
         const observacion = reg.observacionesIndividuales?.[est] || reg.observacionGeneral || '--';
-        tableData.push([
-          reg.fecha || '--', 
-          est, 
-          (reg.asistencia[est] || '--').replace('-', ' '), 
-          reg.notas[est] || '--',
-          observacion
-        ]);
+        tableData.push([reg.fecha || '--', est, (reg.asistencia[est] || '--').replace('-', ' '), reg.notas[est] || '--', observacion]);
       });
     });
-
-    autoTable(doc, {
-      startY: startY,
-      head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [37, 99, 235] },
-      styles: { fontSize: 9, cellPadding: 3 }
-    });
-
+    autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 }});
     doc.save(`Reporte_${claseSeleccionada.titulo}.pdf`);
-    setMostrarModalExportar(false);
-    setMensajeExito('¡Reporte exportado con éxito! 📄✅');
-    setTimeout(() => setMensajeExito(''), 4000);
+    setMostrarModalExportar(false); setMensajeExito('¡Reporte exportado con éxito! 📄✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
   const generarPDFAdmin = async (resultados) => {
     if(resultados.length === 0) return;
     const doc = new jsPDF();
-    
     let periodoStr = mesFiltroBusqueda === 'todo' ? 'Historial Completo' : mesFiltroBusqueda;
-    let tituloPDF = "";
-    let subtitulos = [];
+    let tituloPDF = ""; let subtitulos = [];
 
     if (tipoBusqueda === 'alumno') {
       tituloPDF = "Expediente Académico del Alumno";
       let nombreMayus = terminoBusqueda ? terminoBusqueda.toUpperCase() : 'General';
-      subtitulos = [
-        `Alumno: ${nombreMayus}`,
-        `Generado por: Coordinación Académica`,
-        `Periodo: ${periodoStr}`
-      ];
+      subtitulos = [`Alumno: ${nombreMayus}`, `Generado por: Coordinación Académica`, `Periodo: ${periodoStr}`];
     } else if (tipoBusqueda === 'profesor') {
       tituloPDF = "Expediente del Profesor";
       let profMayus = terminoBusqueda ? terminoBusqueda.toUpperCase() : 'General';
-      subtitulos = [
-        `Profesor: ${profMayus}`,
-        `Generado por: Coordinación Académica`,
-        `Periodo: ${periodoStr}`
-      ];
+      subtitulos = [`Profesor: ${profMayus}`, `Generado por: Coordinación Académica`, `Periodo: ${periodoStr}`];
     } else {
       tituloPDF = "Reporte Académico de Grupo";
-      const claseRef = resultados[0].clase || '--';
-      const profesorRef = resultados[0].profesor || '--';
-      const claseEnBD = clasesFirebase.find(c => c.titulo === claseRef);
-      const nivelReal = resultados[0].nivel || (claseEnBD ? claseEnBD.curso : '--');
-
-      subtitulos = [
-        `Clase: ${claseRef}`,
-        `Nivel Actual: ${nivelReal}`,
-        `Profesor a cargo: ${profesorRef}`,
-        `Periodo: ${periodoStr}`
-      ];
+      const claseRef = resultados[0].clase || '--'; const profesorRef = resultados[0].profesor || '--';
+      const claseEnBD = clasesFirebase.find(c => c.titulo === claseRef); const nivelReal = resultados[0].nivel || (claseEnBD ? claseEnBD.curso : '--');
+      subtitulos = [`Clase: ${claseRef}`, `Nivel Actual: ${nivelReal}`, `Profesor a cargo: ${profesorRef}`, `Periodo: ${periodoStr}`];
     }
-
     const startY = await agregarEncabezadoPDF(doc, tituloPDF, subtitulos);
-    
     const tableData = [];
+    resultados.forEach(reg => {
+      const nombres = Object.keys(reg.asistencia || {});
+      let alumnosAMostrar = nombres;
+      if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
+         const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+         if (match) alumnosAMostrar = [match];
+      }
+      alumnosAMostrar.forEach(alum => {
+         const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
+         tableData.push([reg.fecha || '--', alum || '--', (reg.asistencia?.[alum] || '--').replace('-', ' '), reg.notas?.[alum] || '--', observacion]);
+      });
+    });
+    autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 } });
+    doc.save(`Reporte_Admin_${terminoBusqueda || 'BLC'}.pdf`);
+    setMensajeExito('¡Reporte exportado con formato estándar! 📊✅'); setTimeout(() => setMensajeExito(''), 4000);
+  }
+
+  // NUEVO: EXPORTAR A EXCEL
+  const generarExcelAdmin = (resultados) => {
+    if(resultados.length === 0) return;
+    
+    let csvContent = "Fecha,Alumno,Clase/Nivel,Profesor,Asistencia,Nota,Observaciones\n";
     
     resultados.forEach(reg => {
       const nombres = Object.keys(reg.asistencia || {});
-      
       let alumnosAMostrar = nombres;
       if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
          const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
@@ -277,30 +197,57 @@ function App() {
       }
 
       alumnosAMostrar.forEach(alum => {
-         const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
-         
-         tableData.push([
-           reg.fecha || '--',
-           alum || '--',
-           (reg.asistencia?.[alum] || '--').replace('-', ' '),
-           reg.notas?.[alum] || '--',
-           observacion
-         ]);
+         const estado = (reg.asistencia?.[alum] || '--').replace('-', ' ');
+         const nota = reg.notas?.[alum] || '--';
+         const obs = (reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); // Evitar comas en excel
+         const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
+         const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
+
+         csvContent += `${reg.fecha || '--'},${alum},${reg.clase} (${nivelReal}),${reg.profesor},${estado},${nota},${obs}\n`;
       });
     });
 
-    autoTable(doc, {
-      startY: startY,
-      head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], 
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [37, 99, 235] },
-      styles: { fontSize: 9, cellPadding: 3 } 
-    });
-
-    doc.save(`Reporte_Admin_${terminoBusqueda || 'BLC'}.pdf`);
-    setMensajeExito('¡Reporte exportado con formato estándar! 📊✅');
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Reporte_Admin_${terminoBusqueda || 'BLC'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setMensajeExito('¡Excel exportado correctamente! 📈✅');
     setTimeout(() => setMensajeExito(''), 4000);
+  }
+
+  // METRICAS AUTOMATICAS DE ADMIN
+  const calcularMetricas = () => {
+    const statsAlumnos = {};
+    registrosFirebase.forEach(reg => {
+      const estudiantes = Object.keys(reg.asistencia || {});
+      estudiantes.forEach(est => {
+        if(!statsAlumnos[est]) statsAlumnos[est] = { faltas: 0, asistencias: 0, notasSum: 0, notasCount: 0 };
+        if(reg.asistencia[est] === 'no-asistio') statsAlumnos[est].faltas++;
+        else if(reg.asistencia[est] === 'asistio') statsAlumnos[est].asistencias++;
+        
+        const nota = parseFloat(reg.notas?.[est]);
+        if(!isNaN(nota)) {
+          statsAlumnos[est].notasSum += nota;
+          statsAlumnos[est].notasCount++;
+        }
+      });
+    });
+    
+    const arrAlumnos = Object.keys(statsAlumnos).map(nombre => ({
+       nombre,
+       faltas: statsAlumnos[nombre].faltas,
+       promedio: statsAlumnos[nombre].notasCount > 0 ? (statsAlumnos[nombre].notasSum / statsAlumnos[nombre].notasCount).toFixed(1) : 0
+    }));
+    
+    const enRiesgo = [...arrAlumnos].filter(a => a.faltas > 0).sort((a,b) => b.faltas - a.faltas).slice(0, 5);
+    const cuadroHonor = [...arrAlumnos].filter(a => a.promedio > 0).sort((a,b) => b.promedio - a.promedio).slice(0, 5);
+    
+    return { enRiesgo, cuadroHonor };
   }
 
   const handleToggleActivoProfesor = async (id, estadoActual) => {
@@ -310,9 +257,7 @@ function App() {
       setProfesores(profesores.map(p => p.id === id ? { ...p, activo: !estadoActual } : p));
       setMensajeExito(!estadoActual ? '¡Profesor reactivado con éxito! 🔓' : 'Profesor dado de baja (Oculto) 🔒');
       setTimeout(() => setMensajeExito(''), 3000);
-    } catch (error) {
-      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
-    }
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
   const handleToggleArchivarClase = async (id, estadoActual) => {
@@ -322,9 +267,7 @@ function App() {
       setClasesFirebase(clasesFirebase.map(c => c.id === id ? { ...c, archivada: !estadoActual } : c));
       setMensajeExito(estadoActual ? 'Clase reactivada a la vista 📖' : 'Clase archivada correctamente 🗂️');
       setTimeout(() => setMensajeExito(''), 3000);
-    } catch (error) {
-      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
-    }
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
   const handleAgregarProfesor = async (e) => {
@@ -336,9 +279,7 @@ function App() {
       await addDoc(collection(db, "profesores"), { nombre: nombreNuevoProfesor, color: colorAsignado, activo: true });
       setNombreNuevoProfesor(''); setMensajeExito('Profesor registrado correctamente ✅');
       setTimeout(() => setMensajeExito(''), 3000);
-    } catch (error) {
-      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
-    }
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
   const handleAgregarClase = async (e) => {
@@ -356,9 +297,7 @@ function App() {
       setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setNuevaClaseEstudiantes(''); setNuevaClaseProfesorId('');
       setMensajeExito('Clase creada y asignada correctamente 📚✅');
       setTimeout(() => setMensajeExito(''), 3000);
-    } catch (error) {
-      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
-    }
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
   const handleActualizarCurso = async () => {
@@ -368,12 +307,9 @@ function App() {
       await updateDoc(claseRef, { curso: nuevoNombreCurso });
       setClasesFirebase(clasesFirebase.map(c => c.id === claseSeleccionada.id ? { ...c, curso: nuevoNombreCurso } : c));
       setClaseSeleccionada({ ...claseSeleccionada, curso: nuevoNombreCurso });
-      setEditandoCurso(false);
-      setMensajeExito('¡Nivel del alumno actualizado con éxito! 🚀');
+      setEditandoCurso(false); setMensajeExito('¡Nivel del alumno actualizado con éxito! 🚀');
       setTimeout(() => setMensajeExito(''), 3000);
-    } catch (error) {
-      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
-    }
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
   const resultadosBusqueda = registrosFirebase.filter(reg => {
@@ -401,26 +337,16 @@ function App() {
   const misClases = profesorSeleccionado 
     ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) 
     : [];
-
   const profesoresActivos = profesores.filter(profesor => profesor.activo !== false)
 
   useEffect(() => {
-    setAsistencia({})
-    setNotas({})
-    setObsIndividual({})
-    setFechaClase('')
-    setHorasClase('')
-    setObsGeneral('')
-    setEditandoCurso(false)
+    setAsistencia({}); setNotas({}); setObsIndividual({}); setFechaClase(''); setHorasClase(''); setObsGeneral(''); setEditandoCurso(false);
   }, [claseSeleccionada])
 
   const handleLoginGlobal = (e) => {
     e.preventDefault()
-    if (usuarioGlobal === 'bosslanguagecenter' && claveGlobal === 'cambiandovidas') {
-      setAccesoGlobal(true); setErrorLoginGlobal(false);
-    } else {
-      setErrorLoginGlobal(true); setTimeout(() => setErrorLoginGlobal(false), 3000);
-    }
+    if (usuarioGlobal === 'bosslanguagecenter' && claveGlobal === 'cambiandovidas') { setAccesoGlobal(true); setErrorLoginGlobal(false); } 
+    else { setErrorLoginGlobal(true); setTimeout(() => setErrorLoginGlobal(false), 3000); }
   }
 
   const handleLoginProfesor = (e) => {
@@ -428,70 +354,42 @@ function App() {
     const partesNombre = profesorAAutenticar.nombre.split(' ')
     const iniciales = (partesNombre[0].charAt(0) + (partesNombre[1] ? partesNombre[1].charAt(0) : '')).toUpperCase()
     const pinCorrecto = `${iniciales}2026`
-
-    if (pinInput.toUpperCase() === pinCorrecto) {
-      setProfesorSeleccionado(profesorAAutenticar); setProfesorAAutenticar(null); setPinInput(''); setErrorPin(false);
-    } else {
-      setErrorPin(true); setTimeout(() => setErrorPin(false), 3000);
-    }
+    if (pinInput.toUpperCase() === pinCorrecto) { setProfesorSeleccionado(profesorAAutenticar); setProfesorAAutenticar(null); setPinInput(''); setErrorPin(false); } 
+    else { setErrorPin(true); setTimeout(() => setErrorPin(false), 3000); }
   }
 
   const handleLoginAdmin = (e) => {
     e.preventDefault();
-    if(claveAdminInput === 'bossadmin2026') {
-      setVistaAdmin(true); setMostrarModalAdmin(false); setClaveAdminInput(''); setErrorAdminPin(false);
-    } else {
-      setErrorAdminPin(true); setTimeout(() => setErrorAdminPin(false), 3000);
-    }
+    if(claveAdminInput === 'bossadmin2026') { setVistaAdmin(true); setMostrarModalAdmin(false); setClaveAdminInput(''); setErrorAdminPin(false); } 
+    else { setErrorAdminPin(true); setTimeout(() => setErrorAdminPin(false), 3000); }
   }
 
-  const handleCerrarSesionProfesor = () => {
-    setProfesorSeleccionado(null)
-    setClaseSeleccionada(null)
-  }
+  const handleCerrarSesionProfesor = () => { setProfesorSeleccionado(null); setClaseSeleccionada(null); }
 
   const handleGuardarRegistro = async () => {
     let formularioCompleto = true
     if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false
-    
     claseSeleccionada.estudiantes.forEach(estudiante => {
-      if (!asistencia[estudiante] || !notas[estudiante] || notas[estudiante].trim() === '') {
-        formularioCompleto = false
-      }
+      if (!asistencia[estudiante] || !notas[estudiante] || notas[estudiante].trim() === '') { formularioCompleto = false }
     })
 
     if (formularioCompleto) {
       try {
         await addDoc(collection(db, "registrosClases"), {
-          profesor: profesorSeleccionado.nombre,
-          clase: claseSeleccionada.titulo,
-          nivel: claseSeleccionada.curso,
-          fecha: fechaClase,
-          horas: Number(horasClase),
-          tarifa: claseSeleccionada.tarifa,
-          asistencia: asistencia,
-          notas: notas,
-          observacionesIndividuales: obsIndividual,
-          observacionGeneral: obsGeneral,
+          profesor: profesorSeleccionado.nombre, clase: claseSeleccionada.titulo, nivel: claseSeleccionada.curso,
+          fecha: fechaClase, horas: Number(horasClase), tarifa: claseSeleccionada.tarifa,
+          asistencia: asistencia, notas: notas, observacionesIndividuales: obsIndividual, observacionGeneral: obsGeneral,
           fechaRegistro: new Date().toISOString()
         });
         setMensajeExito('¡Registro guardado en la nube exitosamente! ☁️✅')
         setTimeout(() => setMensajeExito(''), 4000)
         setAsistencia({}); setNotas({}); setObsIndividual({}); setFechaClase(''); setHorasClase(''); setObsGeneral('');
-      } catch (error) {
-        setMostrarError(true); setTimeout(() => setMostrarError(false), 4000);
-      }
-    } else {
-      setMostrarError(true); setTimeout(() => setMostrarError(false), 4000);
-    }
+      } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 4000); }
+    } else { setMostrarError(true); setTimeout(() => setMostrarError(false), 4000); }
   }
 
   const obtenerEstiloBoton = (estudiante, estado, colorBorde, colorFondo, colorTexto) => {
-    const estadoActual = asistencia[estudiante];
-    const algunSeleccionado = estadoActual !== undefined;
-    const estaSeleccionado = estadoActual === estado;
-    const mostrarColor = !algunSeleccionado || estaSeleccionado;
-
+    const estadoActual = asistencia[estudiante]; const algunSeleccionado = estadoActual !== undefined; const estaSeleccionado = estadoActual === estado; const mostrarColor = !algunSeleccionado || estaSeleccionado;
     return {
       padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`,
       backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af',
@@ -553,30 +451,18 @@ function App() {
   }
 
   if (vistaAdmin) {
+    const { enRiesgo, cuadroHonor } = calcularMetricas();
+
     return (
       <>
         {estilosGlobales}
-        
-        {mostrarError && (
-          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(239, 68, 68, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-            <span style={{ fontSize: '24px' }}>⚠️</span>
-            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>Faltan datos por llenar</h4></div>
-          </div>
-        )}
-
-        {mensajeExito && (
-          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-            <span style={{ fontSize: '24px' }}>☁️</span>
-            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>{mensajeExito}</h4></div>
-          </div>
-        )}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>Faltan datos por llenar</h4></div></div>)}
+        {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
         <div style={{ padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#f4f6f8' }}>
           
           <div style={{ width: '100%', maxWidth: '1000px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-            <button onClick={() => setVistaAdmin(false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', color: '#4b5563', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              ← Volver al Panel
-            </button>
+            <button onClick={() => setVistaAdmin(false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', color: '#4b5563', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>← Volver al Panel</button>
             <h1 style={{ color: '#1f2937', margin: 0, fontSize: '24px' }}>Centro de Operaciones (Admin)</h1>
           </div>
 
@@ -589,7 +475,6 @@ function App() {
                 <input type="text" placeholder="Nombre completo" value={nombreNuevoProfesor} onChange={(e) => setNombreNuevoProfesor(e.target.value)} className="input-flotante" style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
                 <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Registrar Profesor</button>
               </form>
-
               <div style={{ marginTop: '20px' }}>
                 <h3 style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 10px 0' }}>Profesores en Base de Datos:</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', paddingRight: '5px' }}>
@@ -599,13 +484,7 @@ function App() {
                         <div className="avatar" style={{ backgroundColor: prof.activo !== false ? prof.color : '#9ca3af', width: '28px', height: '28px', fontSize: '12px' }}>{prof.nombre.charAt(0)}</div>
                         <span style={{ fontSize: '13px', fontWeight: '500', color: prof.activo !== false ? '#374151' : '#9ca3af', textDecoration: prof.activo !== false ? 'none' : 'line-through' }}>{prof.nombre}</span>
                       </div>
-                      <button 
-                        onClick={() => handleToggleActivoProfesor(prof.id, prof.activo !== false)}
-                        className="btn-flotante"
-                        style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', color: prof.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}
-                      >
-                        {prof.activo !== false ? 'Dar de baja' : 'Reactivar'}
-                      </button>
+                      <button onClick={() => handleToggleActivoProfesor(prof.id, prof.activo !== false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', color: prof.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}>{prof.activo !== false ? 'Dar de baja' : 'Reactivar'}</button>
                     </div>
                   ))}
                 </div>
@@ -626,7 +505,6 @@ function App() {
                     <input type="text" placeholder="Ej: Preparación B2" value={nuevaClaseCurso} onChange={(e) => setNuevaClaseCurso(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                   </div>
                 </div>
-
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Días de clase</label>
@@ -637,7 +515,6 @@ function App() {
                     <input type="text" placeholder="Ej: 20:00 - 21:30" value={nuevaClaseHorario} onChange={(e) => setNuevaClaseHorario(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                   </div>
                 </div>
-
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Tarifa por Hora (S/.)</label>
@@ -647,73 +524,69 @@ function App() {
                     <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Asignar al Profesor:</label>
                     <select value={nuevaClaseProfesorId} onChange={(e) => setNuevaClaseProfesorId(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
                       <option value="">-- Seleccionar --</option>
-                      {profesores.map(prof => (
-                        <option key={prof.id} value={prof.id}>{prof.nombre}</option>
-                      ))}
+                      {profesores.map(prof => (<option key={prof.id} value={prof.id}>{prof.nombre}</option>))}
                     </select>
                   </div>
                 </div>
-
                 <div>
                   <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Lista de Estudiantes (Separados por coma)</label>
                   <input type="text" placeholder="Ej: Ana Perez, Carlos Ruiz, Sofia Vega" value={nuevaClaseEstudiantes} onChange={(e) => setNuevaClaseEstudiantes(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                 </div>
-
                 <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '10px' }}>Crear y Asignar Clase</button>
               </form>
             </div>
 
-            {/* SECCION 3: REPORTES */}
+            {/* SECCION 3: REPORTES CON DASHBOARD */}
             <div style={{ flex: '1 1 100%', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginTop: '10px' }}>
-              <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 3. Expediente de Alumnos y Reportes</h2>
+              <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 3. Analítica y Reportes</h2>
               
               <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                <select 
-                  value={tipoBusqueda} 
-                  onChange={(e) => {setTipoBusqueda(e.target.value); setTerminoBusqueda('');}} 
-                  className="input-flotante" 
-                  style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontWeight: '500', color: '#374151', cursor: 'pointer' }}
-                >
+                <select value={tipoBusqueda} onChange={(e) => {setTipoBusqueda(e.target.value); setTerminoBusqueda('');}} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontWeight: '500', color: '#374151', cursor: 'pointer' }}>
                   <option value="alumno">👤 Alumno</option>
                   <option value="clase">📚 Grupo / Empresa</option>
                   <option value="profesor">👨‍🏫 Profesor</option>
                 </select>
-
-                <input 
-                  type="text" 
-                  placeholder={tipoBusqueda === 'alumno' ? "Ej: Ana Castillo..." : tipoBusqueda === 'clase' ? "Ej: Avanzado..." : "Ej: Michael Montero..."}
-                  value={terminoBusqueda} 
-                  onChange={(e) => setTerminoBusqueda(e.target.value)} 
-                  className="input-flotante" 
-                  style={{ flex: 2, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} 
-                />
-
-                <select 
-                  value={mesFiltroBusqueda} 
-                  onChange={(e) => setMesFiltroBusqueda(e.target.value)} 
-                  className="input-flotante" 
-                  style={{ flex: 1, minWidth: '150px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}
-                >
+                <input type="text" placeholder={tipoBusqueda === 'alumno' ? "Buscar alumno..." : tipoBusqueda === 'clase' ? "Buscar grupo..." : "Buscar profesor..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 2, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+                <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '150px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
                   <option value="todo">Todos los meses</option>
                   <option value="2026-08">Agosto 2026</option>
                   <option value="2026-07">Julio 2026</option>
                   <option value="2026-06">Junio 2026</option>
                 </select>
-                <button 
-                  onClick={() => generarPDFAdmin(resultadosBusqueda)} 
-                  className="btn-flotante" 
-                  style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                >
-                  📄 Descargar PDF
-                </button>
+                <button onClick={() => generarPDFAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>📄 PDF</button>
+                <button onClick={() => generarExcelAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>📊 EXCEL</button>
               </div>
 
               <div style={{ overflowX: 'auto' }}>
                 {terminoBusqueda.trim() === '' ? (
-                  <div style={{ padding: '30px', textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
-                    <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
-                      Escribe el nombre de un {tipoBusqueda === 'alumno' ? 'alumno' : tipoBusqueda === 'clase' ? 'grupo' : 'profesor'} en la barra de búsqueda para extraer su historial completo.
-                    </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '10px' }}>
+                    <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '12px', padding: '20px' }}>
+                      <h3 style={{ margin: '0 0 15px 0', color: '#be123c', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚨 Alerta de Riesgo (Faltas)</h3>
+                      {enRiesgo.length === 0 ? <p style={{ fontSize: '13px', color: '#9f1239' }}>No hay alumnos con faltas registradas.</p> : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {enRiesgo.map((al, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: '8px 12px', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                              <span style={{ fontSize: '14px', fontWeight: '500', color: '#881337', textTransform: 'capitalize' }}>{al.nombre}</span>
+                              <span style={{ fontSize: '12px', backgroundColor: '#f43f5e', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>{al.faltas} faltas</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '20px' }}>
+                      <h3 style={{ margin: '0 0 15px 0', color: '#15803d', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🏆 Cuadro de Honor</h3>
+                      {cuadroHonor.length === 0 ? <p style={{ fontSize: '13px', color: '#166534' }}>Aún no hay notas registradas.</p> : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {cuadroHonor.map((al, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: '8px 12px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                              <span style={{ fontSize: '14px', fontWeight: '500', color: '#14532d', textTransform: 'capitalize' }}>{al.nombre}</span>
+                              <span style={{ fontSize: '12px', backgroundColor: '#22c55e', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>Nota: {al.promedio}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : resultadosBusqueda.length === 0 ? (
                   <p style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>No se encontraron registros para "{terminoBusqueda}".</p>
@@ -721,41 +594,23 @@ function App() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '700px' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f3f4f6', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>
-                        <th style={{ padding: '12px' }}>Fecha</th>
-                        <th style={{ padding: '12px' }}>Alumno</th>
-                        <th style={{ padding: '12px' }}>Clase / Nivel</th>
-                        <th style={{ padding: '12px' }}>Profesor</th>
-                        <th style={{ padding: '12px' }}>Asistencia</th>
-                        <th style={{ padding: '12px' }}>Nota</th>
-                        <th style={{ padding: '12px' }}>Observaciones</th>
+                        <th style={{ padding: '12px' }}>Fecha</th><th style={{ padding: '12px' }}>Alumno</th><th style={{ padding: '12px' }}>Clase / Nivel</th><th style={{ padding: '12px' }}>Profesor</th><th style={{ padding: '12px' }}>Asistencia</th><th style={{ padding: '12px' }}>Nota</th><th style={{ padding: '12px' }}>Observaciones</th>
                       </tr>
                     </thead>
                     <tbody>
                       {resultadosBusqueda.map((reg, idx) => {
                           const nombres = Object.keys(reg.asistencia || {});
-                          
                           let alumnosAMostrar = nombres;
-                          if (tipoBusqueda === 'alumno') {
-                            const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
-                            if (match) alumnosAMostrar = [match];
-                          }
-                          
-                          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
-                          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
-
+                          if (tipoBusqueda === 'alumno') { const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase())); if (match) alumnosAMostrar = [match]; }
+                          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase); const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
                           return alumnosAMostrar.map((alum, subIdx) => {
-                            const estado = reg.asistencia?.[alum];
-                            const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
+                            const estado = reg.asistencia?.[alum]; const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                             const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
-                            
                             return (
                               <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                                  <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha}</td>
-                                  <td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum}</td>
-                                  <td style={{ padding: '12px' }}>{reg.clase} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td>
-                                  <td style={{ padding: '12px' }}>{reg.profesor}</td>
-                                  <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado?.replace('-', ' ')}</td>
-                                  <td style={{ padding: '12px', fontWeight: 'bold' }}>{reg.notas?.[alum] || '--'}</td>
+                                  <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha}</td><td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum}</td>
+                                  <td style={{ padding: '12px' }}>{reg.clase} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td><td style={{ padding: '12px' }}>{reg.profesor}</td>
+                                  <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado?.replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{reg.notas?.[alum] || '--'}</td>
                                   <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
                               </tr>
                             )
@@ -770,17 +625,8 @@ function App() {
             {/* SECCION 4: GESTION DE CLASES */}
             <div style={{ flex: '1 1 100%', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginTop: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '20px' }}>
-                <h2 style={{ margin: 0, fontSize: '18px', color: '#374151' }}>
-                  {verArchivadasAdmin ? '🗂️ 4. Clases Archivadas' : '🟢 4. Clases Activas'}
-                </h2>
-                <button 
-                  type="button" 
-                  onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} 
-                  className="btn-flotante"
-                  style={{ background: '#f3f4f6', border: '1px solid #d1d5db', color: '#374151', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
-                >
-                  {verArchivadasAdmin ? 'Cambiar a Activas' : 'Cambiar a Archivadas'}
-                </button>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#374151' }}>{verArchivadasAdmin ? '🗂️ 4. Clases Archivadas' : '🟢 4. Clases Activas'}</h2>
+                <button type="button" onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} className="btn-flotante" style={{ background: '#f3f4f6', border: '1px solid #d1d5db', color: '#374151', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>{verArchivadasAdmin ? 'Cambiar a Activas' : 'Cambiar a Archivadas'}</button>
               </div>
               
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
@@ -791,24 +637,10 @@ function App() {
                       <span style={{ fontSize: '12px', color: '#6b7280' }}>{clase.curso}</span>
                       <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId.substring(0,5)}...</span>
                     </div>
-                    <button 
-                      onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)}
-                      className="btn-flotante"
-                      style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}
-                    >
-                      {clase.archivada ? 'Desarchivar' : 'Archivar'}
-                    </button>
+                    <button onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}>{clase.archivada ? 'Desarchivar' : 'Archivar'}</button>
                   </div>
                 ))}
               </div>
-              
-              {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).length === 0 && (
-                <div style={{ padding: '30px', textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
-                  <p style={{ color: '#6b7280', fontSize: '14px', margin: 0 }}>
-                    No hay clases {verArchivadasAdmin ? 'archivadas' : 'activas'} en la base de datos.
-                  </p>
-                </div>
-              )}
             </div>
 
           </div>
@@ -818,30 +650,16 @@ function App() {
   }
 
   if (profesorSeleccionado) {
-
     let mesPrefixPlanilla = "";
-    if (mesPlanilla === "Agosto 2026") mesPrefixPlanilla = "2026-08";
-    else if (mesPlanilla === "Julio 2026") mesPrefixPlanilla = "2026-07";
-
-    const registrosMesProfesor = registrosFirebase.filter(reg => 
-      reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla))
-    );
+    if (mesPlanilla === "Agosto 2026") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "Julio 2026") mesPrefixPlanilla = "2026-07";
+    const registrosMesProfesor = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla)));
     const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
 
-    let totalNotas = 0;
-    let countNotas = 0;
+    let totalNotas = 0; let countNotas = 0;
     if (claseSeleccionada) {
       const registrosDeEstaClase = registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo);
       registrosDeEstaClase.forEach(reg => {
-        if (reg.notas) {
-          Object.values(reg.notas).forEach(nota => {
-            const val = parseFloat(nota);
-            if (!isNaN(val)) {
-              totalNotas += val;
-              countNotas++;
-            }
-          });
-        }
+        if (reg.notas) { Object.values(reg.notas).forEach(nota => { const val = parseFloat(nota); if (!isNaN(val)) { totalNotas += val; countNotas++; }});}
       });
     }
     const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
@@ -849,19 +667,8 @@ function App() {
     return (
       <>
         {estilosGlobales}
-        {mostrarError && (
-          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(239, 68, 68, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-            <span style={{ fontSize: '24px' }}>⚠️</span>
-            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>Faltan datos obligatorios</h4><p style={{ margin: '4px 0 0 0', fontSize: '13px', opacity: 0.9 }}>Asegúrate de marcar la asistencia, notas, fecha y horas.</p></div>
-          </div>
-        )}
-
-        {mensajeExito && (
-          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-            <span style={{ fontSize: '24px' }}>☁️</span>
-            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>{mensajeExito}</h4></div>
-          </div>
-        )}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>Faltan datos obligatorios</h4></div></div>)}
+        {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
         {mostrarModalExportar && (
           <>
@@ -873,15 +680,13 @@ function App() {
               </div>
               <div style={{ marginBottom: '24px', textAlign: 'left' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Selecciona el periodo:</label>
-                <select value={mesExportar} onChange={(e) => setMesExportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827', cursor: 'pointer', textAlign: 'left' }}>
+                <select value={mesExportar} onChange={(e) => setMesExportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
                   <option value="Agosto 2026">Agosto 2026</option>
                   <option value="Julio 2026">Julio 2026</option>
                   <option value="todo">📚 Exportar todo el historial</option>
                 </select>
               </div>
-              <button onClick={generarPDFReporteClase} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
-                ⬇️ Descargar PDF
-              </button>
+              <button onClick={generarPDFReporteClase} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF</button>
             </div>
           </>
         )}
@@ -896,7 +701,7 @@ function App() {
               </div>
               <div style={{ marginBottom: '20px', textAlign: 'left' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Periodo a facturar:</label>
-                <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827', cursor: 'pointer', textAlign: 'left' }}>
+                <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
                   <option value="Agosto 2026">Agosto 2026</option>
                   <option value="Julio 2026">Julio 2026</option>
                 </select>
@@ -904,11 +709,9 @@ function App() {
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                 <p style={{ margin: 0, color: '#6b7280', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Monto a cobrar ({mesPlanilla})</p>
                 <h1 style={{ margin: '8px 0', color: '#059669', fontSize: '36px' }}>S/. {montoCalculadoPantalla.toFixed(2)}</h1>
-                <p style={{ margin: 0, color: '#9ca3af', fontSize: '12px' }}>Cálculo basado en las horas que registraste este periodo.</p>
+                <p style={{ margin: 0, color: '#9ca3af', fontSize: '12px' }}>Cálculo basado en las horas registradas este periodo.</p>
               </div>
-              <button onClick={generarPDFPlanilla} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
-                ⬇️ Descargar PDF Oficial
-              </button>
+              <button onClick={generarPDFPlanilla} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF Oficial</button>
             </div>
           </>
         )}
@@ -916,18 +719,12 @@ function App() {
         <div style={{ display: 'flex', height: '100vh', backgroundColor: '#f4f6f8' }}>
           <div style={{ width: '300px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb' }}>
-              <button onClick={handleCerrarSesionProfesor} className="btn-flotante" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', marginLeft: '-10px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                ← Cerrar Sesión
-              </button>
+              <button onClick={handleCerrarSesionProfesor} className="btn-flotante" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', marginLeft: '-10px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '5px' }}>← Cerrar Sesión</button>
               <div style={{ marginBottom: '15px', textAlign: 'left' }}>
                 <img src="/boss_accredible.png" alt="Logo" style={{ width: '90px', height: 'auto', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-                <div>
-                  <h2 style={{ margin: '0 0 2px 0', fontSize: '18px', color: '#111827' }}>Mis Clases</h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Cursos asignados</p>
-                </div>
+                <div><h2 style={{ margin: '0 0 2px 0', fontSize: '18px', color: '#111827' }}>Mis Clases</h2><p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Cursos asignados</p></div>
               </div>
             </div>
-
             <div style={{ padding: '16px 12px', overflowY: 'auto', flex: 1 }}>
               {misClases.length === 0 ? (
                 <p style={{ color: '#9ca3af', textAlign: 'center', fontSize: '13px', marginTop: '20px' }}>No tienes clases asignadas aún.</p>
@@ -936,42 +733,29 @@ function App() {
                   <div key={clase.id} onClick={() => setClaseSeleccionada(clase)} className="btn-flotante" style={{ padding: '12px 16px', borderRadius: '12px', cursor: 'pointer', marginBottom: '8px', backgroundColor: claseSeleccionada?.id === clase.id ? '#eff6ff' : 'transparent', border: claseSeleccionada?.id === clase.id ? '1px solid #bfdbfe' : '1px solid transparent', textAlign: 'center' }}>
                     <h4 style={{ margin: 0, color: claseSeleccionada?.id === clase.id ? '#1d4ed8' : '#374151', fontSize: '14px' }}>{clase.titulo}</h4>
                     <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6b7280' }}>{clase.estudiantes.length} alumno(s) • {clase.curso}</p>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#9ca3af', fontWeight: '500' }}>🕒 {clase.dias} | {clase.horario}</p>
                   </div>
                 ))
               )}
             </div>
-
             <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
-              <button onClick={() => setMostrarPlanilla(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                📊 Ver y Exportar Pago
-              </button>
+              <button onClick={() => setMostrarPlanilla(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>📊 Ver y Exportar Pago</button>
             </div>
           </div>
 
           <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto' }}>
             {claseSeleccionada ? (
               <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', maxWidth: '900px', margin: '0 auto' }}>
-                
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px' }}>
-                  
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}></div>
-                    
                     <div style={{ flex: 2, textAlign: 'center' }}>
                       <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>Registro de Clase</h1>
-                      <p style={{ margin: '8px 0 0 0', color: '#6b7280', fontSize: '15px' }}>
-                        Clase seleccionada: <strong style={{ color: '#374151' }}>{claseSeleccionada.titulo}</strong>
-                      </p>
+                      <p style={{ margin: '8px 0 0 0', color: '#6b7280', fontSize: '15px' }}>Clase seleccionada: <strong style={{ color: '#374151' }}>{claseSeleccionada.titulo}</strong></p>
                     </div>
-
                     <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-                      <button onClick={() => setMostrarModalExportar(true)} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        📄 Exportar Reporte
-                      </button>
+                      <button onClick={() => setMostrarModalExportar(true)} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>📄 Exportar Reporte</button>
                     </div>
                   </div>
-                  
                   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
                     {editandoCurso ? (
                       <>
@@ -981,25 +765,16 @@ function App() {
                       </>
                     ) : (
                       <>
-                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>
-                          Nivel actual: {claseSeleccionada.curso}
-                        </span>
-                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Editar Nivel del Grupo">
-                          ✏️
-                        </button>
-                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>
-                          📈 Promedio Histórico: {promedioGrupo}
-                        </span>
+                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
+                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }}>✏️</button>
+                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
                       </>
                     )}
                   </div>
                 </div>
 
                 <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
-                    Desempeño Individual
-                  </h3>
-                  
+                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>Desempeño Individual</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {claseSeleccionada.estudiantes.map((estudiante, index) => (
                       <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1016,7 +791,7 @@ function App() {
                           </div>
                         </div>
                         <div style={{ width: '100%' }}>
-                          <input className="input-flotante" type="text" placeholder={`Observaciones específicas sobre ${estudiante} (Opcional)`} value={obsIndividual[estudiante] || ''} onChange={(e) => setObsIndividual({...obsIndividual, [estudiante]: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px', boxSizing: 'border-box', backgroundColor: 'white' }} />
+                          <input className="input-flotante" type="text" placeholder={`Observaciones sobre ${estudiante} (Opcional)`} value={obsIndividual[estudiante] || ''} onChange={(e) => setObsIndividual({...obsIndividual, [estudiante]: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px', boxSizing: 'border-box' }} />
                         </div>
                       </div>
                     ))}
@@ -1025,11 +800,11 @@ function App() {
 
                 <div style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Fecha de la clase (Real)</label>
-                    <input className="input-flotante" type="date" value={fechaClase} onChange={(e) => setFechaClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', color: '#374151' }} />
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Fecha (Real)</label>
+                    <input className="input-flotante" type="date" value={fechaClase} onChange={(e) => setFechaClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Horas impartidas (Real)</label>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Horas (Real)</label>
                     <input className="input-flotante" type="number" step="0.5" placeholder="Ej: 1.5" value={horasClase} onChange={(e) => setHorasClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                   </div>
                   <div style={{ flex: 1 }}>
@@ -1039,15 +814,10 @@ function App() {
                 </div>
 
                 <div style={{ marginBottom: '32px' }}>
-                  <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>
-                    {claseSeleccionada.estudiantes.length > 1 ? "Temas vistos en clase (Observación general)" : "Observaciones de la clase"}
-                  </label>
-                  <textarea className="input-flotante" rows="3" placeholder="Detalles sobre los temas vistos hoy, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
+                  <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Observaciones Generales</label>
+                  <textarea className="input-flotante" rows="3" placeholder="Detalles sobre temas vistos, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
                 </div>
-
-                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)' }}>
-                  Guardar Registro Completo
-                </button>
+                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>Guardar Registro</button>
               </div>
             ) : (
               <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
@@ -1063,18 +833,15 @@ function App() {
   return (
     <>
       {estilosGlobales}
-      
       {mostrarModalAdmin && (
         <>
           <div onClick={() => {setMostrarModalAdmin(false); setErrorAdminPin(false); setClaveAdminInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-          <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center', animation: errorAdminPin ? 'vibrar 0.3s ease' : 'none' }}>
-            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#111827', color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>⚙️</div>
+          <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
             <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Acceso Administrativo</h2>
-            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa la clave maestra para gestionar profesores y clases.</p>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa la clave maestra.</p>
             <form onSubmit={handleLoginAdmin}>
-              <input type="password" placeholder="Clave Maestra" className="input-flotante" value={claveAdminInput} onChange={(e) => setClaveAdminInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorAdminPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', fontSize: '16px', boxSizing: 'border-box', textAlign: 'center' }} autoFocus />
-              {errorAdminPin && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>Clave incorrecta.</p>}
-              <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer' }}>Entrar al Panel</button>
+              <input type="password" placeholder="Clave Maestra" className="input-flotante" value={claveAdminInput} onChange={(e) => setClaveAdminInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorAdminPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
+              <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Entrar al Panel</button>
             </form>
           </div>
         </>
@@ -1083,16 +850,13 @@ function App() {
       {profesorAAutenticar && (
         <>
           <div onClick={() => {setProfesorAAutenticar(null); setErrorPin(false); setPinInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-          <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center', animation: errorPin ? 'vibrar 0.3s ease' : 'none' }}>
-            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: profesorAAutenticar.color, color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>
-              {profesorAAutenticar.nombre.charAt(0)}
-            </div>
+          <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: profesorAAutenticar.color, color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>{profesorAAutenticar.nombre.charAt(0)}</div>
             <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Hola, {profesorAAutenticar.nombre.split(' ')[0]}</h2>
-            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa tu PIN de seguridad para continuar.</p>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa tu PIN de seguridad.</p>
             <form onSubmit={handleLoginProfesor}>
-              <input type="password" placeholder="Ingresa tu PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', fontSize: '16px', boxSizing: 'border-box', textAlign: 'center' }} autoFocus />
-              {errorPin && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>PIN incorrecto.</p>}
-              <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer' }}>Ingresar al Panel</button>
+              <input type="password" placeholder="PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
+              <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Ingresar</button>
             </form>
           </div>
         </>
@@ -1100,40 +864,26 @@ function App() {
 
       <div style={{ textAlign: 'center', padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
         <div style={{ position: 'absolute', top: '25px', left: '30px' }}>
-          <button onClick={() => setAccesoGlobal(false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', color: '#4b5563', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-            <span>🚪</span> Salir del sistema
-          </button>
+          <button onClick={() => setAccesoGlobal(false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>🚪 Salir</button>
         </div>
-
         <div style={{ position: 'absolute', top: '25px', right: '30px' }}>
-          <button onClick={() => setMostrarModalAdmin(true)} className="btn-flotante" style={{ background: '#111827', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-            <span>⚙️</span> Panel Admin
-          </button>
+          <button onClick={() => setMostrarModalAdmin(true)} className="btn-flotante" style={{ background: '#111827', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>⚙️ Admin</button>
         </div>
-
         <div style={{ marginTop: '20px', marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <img src="/boss_accredible.png" alt="Logo" style={{ width: '120px', height: 'auto', objectFit: 'contain', marginBottom: '15px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '30px', letterSpacing: '-0.5px' }}>Boss Language Center</h1>
+          <img src="/boss_accredible.png" alt="Logo" style={{ width: '120px', height: 'auto', marginBottom: '15px' }} onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '30px' }}>Boss Language Center</h1>
           <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>Selecciona tu perfil docente</p>
         </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {profesoresActivos.length === 0 ? (
-            <div style={{ padding: '20px', color: '#6b7280', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
-              <p style={{ margin: 0 }}>No hay profesores registrados.</p>
-              <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>Usa el <strong>Panel Admin</strong> arriba a la derecha para agregar uno.</p>
-            </div>
-          ) : (
-            profesoresActivos.map((profesor) => (
-              <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion">
-                <div className="avatar" style={{ backgroundColor: profesor.color }}>{profesor.nombre.charAt(0)}</div>
-                <div className="textos">
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre}</h2>
-                  <p style={{ margin: 0, fontSize: '13px', color: '#5f6368', fontWeight: '400' }}>Language Teacher</p>
-                </div>
+          {profesoresActivos.map((profesor) => (
+            <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion">
+              <div className="avatar" style={{ backgroundColor: profesor.color }}>{profesor.nombre.charAt(0)}</div>
+              <div className="textos">
+                <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre}</h2>
+                <p style={{ margin: 0, fontSize: '13px', color: '#5f6368' }}>Language Teacher</p>
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
       </div>
     </>
