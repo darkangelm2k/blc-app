@@ -80,14 +80,13 @@ function App() {
     if(accesoGlobal) cargarDatos();
   }, [accesoGlobal, mensajeExito]); 
 
-  // ====================================================
-  // NUEVO: FUNCION COMPATIBLE PARA CALCULAR PROMEDIOS DE SKILLS
-  // ====================================================
+  // Función matemática inteligente: Divide solo entre los skills llenados
   const getPromedio = (notasDato) => {
     if (!notasDato) return '--';
     if (typeof notasDato === 'string' || typeof notasDato === 'number') return parseFloat(notasDato).toFixed(1);
     
-    const vals = Object.values(notasDato).map(Number).filter(n => !isNaN(n));
+    // Ignoramos los vacíos y sumamos solo los números válidos
+    const vals = Object.values(notasDato).map(Number).filter(n => !isNaN(n) && n > 0);
     return vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '--';
   }
 
@@ -378,19 +377,21 @@ function App() {
   const handleCerrarSesionProfesor = () => { setProfesorSeleccionado(null); setClaseSeleccionada(null); }
 
   const handleGuardarRegistro = async () => {
-    let formularioCompleto = true
-    if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false
+    let formularioCompleto = true;
+    if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false;
+    
     claseSeleccionada.estudiantes.forEach(estudiante => { 
       const ast = asistencia[estudiante];
       if (!ast) formularioCompleto = false;
-      // VALIDACION DE LAS 5 SKILLS SOLO SI ASISTIO
+      
+      // NUEVA REGLA: Si asistio, basta con que haya llenado AL MENOS UN skill.
       if (ast === 'asistio') {
         const n = notas[estudiante];
-        if (!n || !n.oral || !n.grammar || !n.reading || !n.listening || !n.writing) {
+        if (!n || (!n.oral && !n.grammar && !n.reading && !n.listening && !n.writing)) {
           formularioCompleto = false;
         }
       }
-    })
+    });
     
     if (formularioCompleto) {
       try {
@@ -774,7 +775,6 @@ function App() {
       const registrosDeEstaClase = registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo);
       registrosDeEstaClase.forEach(reg => {
         if (reg.notas) { Object.values(reg.notas).forEach(nota => { 
-          // Soporta el formato nuevo y el viejo
           const val = typeof nota === 'object' ? getPromedio(nota) : parseFloat(nota); 
           if (!isNaN(val)) { totalNotas += parseFloat(val); countNotas++; }
         });}
@@ -905,7 +905,6 @@ function App() {
                           </div>
                         </div>
 
-                        {/* DESPLIEGUE MÁGICO DE LOS 5 SKILLS SOLO SI ASISTIÓ */}
                         {asistencia[estudiante] === 'asistio' && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', flexWrap: 'wrap' }}>
                             <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: '600', width: '100%', textAlign: 'center', marginBottom: '4px' }}>Evaluación Diaria (1-20)</div>
