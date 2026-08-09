@@ -5,8 +5,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 function App() {
-  // CONTROL DE PANTALLAS DE INICIO
-  const [modoIngreso, setModoIngreso] = useState('inicio') // 'inicio', 'staff', 'alumno'
+  const [modoIngreso, setModoIngreso] = useState('inicio') 
   
   const [accesoGlobal, setAccesoGlobal] = useState(false)
   const [usuarioGlobal, setUsuarioGlobal] = useState('')
@@ -20,7 +19,6 @@ function App() {
   const [profesorSeleccionado, setProfesorSeleccionado] = useState(null)
   const [claseSeleccionada, setClaseSeleccionada] = useState(null)
   
-  // LOGIN ALUMNO CON DOCUMENTOS
   const [loginAlumnoTipoDoc, setLoginAlumnoTipoDoc] = useState('DNI')
   const [loginAlumnoNumDoc, setLoginAlumnoNumDoc] = useState('')
   const [errorLoginAlumno, setErrorLoginAlumno] = useState(false)
@@ -40,7 +38,6 @@ function App() {
   const [horasClase, setHorasClase] = useState('')
   const [obsGeneral, setObsGeneral] = useState('')
 
-  // DATOS DE FIREBASE
   const [profesores, setProfesores] = useState([])
   const [alumnosFirebase, setAlumnosFirebase] = useState([]) 
   const [clasesFirebase, setClasesFirebase] = useState([]) 
@@ -55,7 +52,6 @@ function App() {
 
   const [adminTab, setAdminTab] = useState('reportes')
 
-  // FORMULARIOS DE REGISTRO
   const [nombreNuevoProfesor, setNombreNuevoProfesor] = useState('')
   const [nuevoAlumnoNombre, setNuevoAlumnoNombre] = useState('')
   const [nuevoAlumnoTipoDoc, setNuevoAlumnoTipoDoc] = useState('DNI')
@@ -167,7 +163,6 @@ function App() {
     doc.save(`Recibo_BLC_${pago.alumno}_${pago.mes}.pdf`);
   }
 
-  // NUEVO: PDF EXCLUSIVO PARA EL ALUMNO
   const generarPDFReporteAlumnoUnico = async () => {
     const doc = new jsPDF();
     const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]).sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
@@ -387,22 +382,47 @@ function App() {
 
   const calcularFinanzas = () => {
     let ingresosPensiones = 0; let ingresosExtra = 0; let egresosNomina = 0; let egresosExtra = 0;
-    pagosFirebase.forEach(pago => { if (matchFiltroFinanzas(pago.mes)) ingresosPensiones += Number(pago.monto || 0); });
-    registrosFirebase.forEach(reg => { if (matchFiltroFinanzas(reg.fecha)) egresosNomina += (Number(reg.horas || 0) * Number(reg.tarifa || 0)); });
+
+    pagosFirebase.forEach(pago => {
+      if (matchFiltroFinanzas(pago.mes)) ingresosPensiones += Number(pago.monto || 0);
+    });
+    registrosFirebase.forEach(reg => {
+      if (matchFiltroFinanzas(reg.fecha)) egresosNomina += (Number(reg.horas || 0) * Number(reg.tarifa || 0));
+    });
     movimientosExtra.forEach(mov => {
       if (matchFiltroFinanzas(mov.mes)) {
         if (mov.tipo === 'ingreso_extra') ingresosExtra += Number(mov.monto || 0);
         else if (mov.tipo === 'gasto_extra') egresosExtra += Number(mov.monto || 0);
       }
     });
+
     const totalIngresos = ingresosPensiones + ingresosExtra;
     const totalEgresos = egresosNomina + egresosExtra;
     const balance = totalIngresos - totalEgresos;
+
     const baseReparto = balance > 0 ? balance : 0;
     const reservaEmpresa = baseReparto * 0.20;
     const repartoDaniel = baseReparto * 0.40;
     const repartoMichael = baseReparto * 0.40;
-    return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
+
+    return { 
+      ingresosPensiones, ingresosExtra, totalIngresos, 
+      egresosNomina, egresosExtra, totalEgresos, 
+      balance, reservaEmpresa, repartoDaniel, repartoMichael 
+    };
+  }
+
+  // ====================================================
+  // NUEVAS FUNCIONES: DAR DE BAJA ALUMNO Y REACTIVAR
+  // ====================================================
+  const handleToggleActivoAlumno = async (id, estadoActual) => {
+    try {
+      const alumRef = doc(db, "alumnos", id);
+      await updateDoc(alumRef, { activo: !estadoActual });
+      setAlumnosFirebase(alumnosFirebase.map(a => a.id === id ? { ...a, activo: !estadoActual } : a));
+      setMensajeExito(!estadoActual ? '¡Alumno reactivado! 🔓' : 'Alumno dado de baja 🔒');
+      setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
   const handleEliminarAlumno = async (id) => {
@@ -449,7 +469,8 @@ function App() {
     e.preventDefault();
     if (!nuevoAlumnoNombre || !nuevoAlumnoNumDoc) return;
     try {
-      await addDoc(collection(db, "alumnos"), { nombre: nuevoAlumnoNombre, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, fechaRegistro: new Date().toISOString() });
+      // NUEVO: El alumno se crea con "activo: true" por defecto
+      await addDoc(collection(db, "alumnos"), { nombre: nuevoAlumnoNombre, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, fechaRegistro: new Date().toISOString(), activo: true });
       setNuevoAlumnoNombre(''); setNuevoAlumnoNumDoc('');
       setMensajeExito('Alumno registrado en el Directorio ✅'); setTimeout(() => setMensajeExito(''), 3000);
     } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
@@ -566,6 +587,11 @@ function App() {
     e.preventDefault();
     const alumnoEncontrado = alumnosFirebase.find(a => a.tipoDoc === loginAlumnoTipoDoc && a.numDoc === loginAlumnoNumDoc);
     if(alumnoEncontrado) {
+      // Validamos si está activo
+      if (alumnoEncontrado.activo === false) {
+        alert("Tu usuario ha sido dado de baja. Comunícate con administración.");
+        return;
+      }
       setAlumnoSeleccionado(alumnoEncontrado.nombre);
       setModoIngreso('inicio');
       setLoginAlumnoNumDoc('');
@@ -642,15 +668,12 @@ function App() {
     `}</style>
   )
 
-  // ====================================================
-  // NUEVA PANTALLA SPLIT (ALUMNO vs STAFF)
-  // ====================================================
   if (modoIngreso === 'inicio' && !alumnoSeleccionado && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
         {estilosGlobales}
         <img src="/boss_accredible.png" alt="Logo" style={{ height: '90px', marginBottom: '40px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-        <h1 style={{ color: '#1f2937', marginBottom: '40px', fontSize: '28px' }}>Bienvenido a Boss Language Center</h1>
+        <h1 style={{ color: '#1f2937', marginBottom: '40px', fontSize: '28px', textAlign: 'center' }}>Bienvenido a Boss Language Center</h1>
         
         <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap', justifyContent: 'center' }}>
           <button onClick={() => setModoIngreso('alumno')} className="big-btn-home" style={{ backgroundColor: '#059669', color: 'white', boxShadow: '0 4px 15px rgba(5, 150, 105, 0.3)' }}>
@@ -669,9 +692,6 @@ function App() {
     )
   }
 
-  // ====================================================
-  // LOGIN ALUMNO (SOLO DOCUMENTO)
-  // ====================================================
   if (modoIngreso === 'alumno' && !alumnoSeleccionado) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -692,7 +712,7 @@ function App() {
               </select>
               <input type="text" placeholder="N° de Documento" value={loginAlumnoNumDoc} onChange={(e) => setLoginAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '65%', padding: '14px', borderRadius: '8px', border: errorLoginAlumno ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', textAlign: 'center', fontSize: '15px', letterSpacing: '1px' }} autoFocus />
             </div>
-            {errorLoginAlumno && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>Documento no encontrado o incorrecto.</p>}
+            {errorLoginAlumno && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>Documento no encontrado o dado de baja.</p>}
             <button type="submit" className="login-btn" style={{ backgroundColor: '#059669' }}>Acceder a mis Notas</button>
           </form>
         </div>
@@ -700,9 +720,6 @@ function App() {
     )
   }
 
-  // ====================================================
-  // VISTA PORTAL DEL ALUMNO (SOLO LECTURA)
-  // ====================================================
   if (alumnoSeleccionado) {
     const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
     const pagosAlumno = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
@@ -720,8 +737,6 @@ function App() {
 
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
     const promedioGlobal = notasList.length > 0 ? (notasList.reduce((a,b)=>a+b,0)/notasList.length).toFixed(1) : '--';
-    
-    // Validar mes actual
     const mesReferencia = new Date().toISOString().substring(0, 7); 
     const pagoAlDia = pagosFirebase.some(p => p.alumno === alumnoSeleccionado && p.mes === mesReferencia);
 
@@ -730,7 +745,7 @@ function App() {
         {estilosGlobales}
         <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.4s ease' }}>
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '50px' }} />
               <div>
@@ -766,8 +781,6 @@ function App() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
-            
-            {/* HISTORIAL ACADEMICO */}
             <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📚 Mi Historial de Clases</h2>
               <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
@@ -798,7 +811,6 @@ function App() {
               </div>
             </div>
 
-            {/* HISTORIAL FINANCIERO */}
             <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>💰 Mis Pagos y Boletas</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
@@ -826,9 +838,6 @@ function App() {
     )
   }
 
-  // ====================================================
-  // LOGIN STAFF GLOBALES
-  // ====================================================
   if (modoIngreso === 'staff' && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -1005,6 +1014,7 @@ function App() {
                 </div>
               )}
 
+              {/* NUEVA PESTAÑA: DIRECTORIO DE ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1041,12 +1051,17 @@ function App() {
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👥 Alumnos en Directorio</h2>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
                         {alumnosFirebase.map(alum => (
-                          <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                          <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{alum.nombre}</span>
+                              <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre}</span>
                               <span style={{ fontSize: '11px', color: '#6b7280' }}>{alum.tipoDoc}: {alum.numDoc}</span>
                             </div>
-                            <button onClick={() => handleEliminarAlumno(alum.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button onClick={() => handleToggleActivoAlumno(alum.id, alum.activo !== false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', color: alum.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}>
+                                {alum.activo !== false ? 'Dar de baja' : 'Reactivar'}
+                              </button>
+                              <button onClick={() => handleEliminarAlumno(alum.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
+                            </div>
                           </div>
                         ))}
                         {alumnosFirebase.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px' }}>Aún no hay alumnos registrados.</p>}
@@ -1107,7 +1122,7 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
+                    <h2 style={{ margin: '0 0 20px', fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
                     <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
                       <option value="todo">Historial Completo</option>
                       <option value="2026">Todo el 2026 (Anual)</option>
@@ -1338,10 +1353,10 @@ function App() {
                       <div>
                         <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Estudiantes (Pre-registrados en el Directorio)</label>
                         <div className="scroll-casillas" style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', padding: '12px', backgroundColor: '#f9fafb' }}>
-                          {alumnosFirebase.length === 0 ? (
-                            <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>⚠️ Primero debes registrar alumnos en la pestaña "Directorio Alumnos".</p>
+                          {alumnosFirebase.filter(al => al.activo !== false).length === 0 ? (
+                            <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>⚠️ No hay alumnos activos registrados en el Directorio.</p>
                           ) : (
-                            alumnosFirebase.map(al => (
+                            alumnosFirebase.filter(al => al.activo !== false).map(al => (
                               <label key={al.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', borderBottom: '1px solid #e5e7eb', cursor: 'pointer' }}>
                                 <input 
                                   type="checkbox" 
@@ -1352,7 +1367,7 @@ function App() {
                                   }} 
                                   style={{ cursor: 'pointer', width: '16px', height: '16px' }}
                                 />
-                                <span style={{ fontSize: '14px', color: '#374151' }}>{al.nombre}</span>
+                                <span style={{ fontSize: '14px', color: '#374151', textTransform: 'capitalize' }}>{al.nombre}</span>
                               </label>
                             ))
                           )}
@@ -1394,9 +1409,6 @@ function App() {
     )
   }
 
-  // ====================================================
-  // VISTA DEL PROFESOR
-  // ====================================================
   if (profesorSeleccionado) {
     let mesPrefixPlanilla = "";
     if (mesPlanilla === "2026-08") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "2026-07") mesPrefixPlanilla = "2026-07";
