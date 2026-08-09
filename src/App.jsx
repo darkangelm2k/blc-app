@@ -34,7 +34,7 @@ function App() {
   const [profesores, setProfesores] = useState([])
   const [clasesFirebase, setClasesFirebase] = useState([]) 
   const [registrosFirebase, setRegistrosFirebase] = useState([]) 
-  const [pagosFirebase, setPagosFirebase] = useState([]) // NUEVO: Estado para pagos
+  const [pagosFirebase, setPagosFirebase] = useState([]) 
   
   const [vistaAdmin, setVistaAdmin] = useState(false)
   const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false)
@@ -60,7 +60,6 @@ function App() {
   const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
   const [verArchivadasAdmin, setVerArchivadasAdmin] = useState(false)
 
-  // NUEVO: Estados para registrar pagos
   const [nuevoPagoAlumno, setNuevoPagoAlumno] = useState('')
   const [nuevoPagoMonto, setNuevoPagoMonto] = useState('')
   const [nuevoPagoMes, setNuevoPagoMes] = useState('2026-08')
@@ -87,7 +86,6 @@ function App() {
     if(accesoGlobal) cargarDatos();
   }, [accesoGlobal, mensajeExito]); 
 
-  // Generar lista única de todos los alumnos inscritos en todas las clases
   const todosLosAlumnos = Array.from(new Set(clasesFirebase.flatMap(c => c.estudiantes || []))).sort();
 
   const getPromedio = (notasDato) => {
@@ -236,9 +234,6 @@ function App() {
     setMensajeExito('¡Excel exportado correctamente! 📈✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
-  // ===============================================
-  // CÁLCULOS PARA DASHBOARDS (Alumnos, Profes y Finanzas)
-  // ===============================================
   const calcularMetricas = () => {
     const statsAlumnos = {};
     registrosFirebase.forEach(reg => {
@@ -300,27 +295,19 @@ function App() {
   const calcularFinanzas = () => {
     let ingresos = 0;
     let egresos = 0;
-
-    // Sumar ingresos (Pagos de alumnos del mes)
     pagosFirebase.forEach(pago => {
       if (mesFinanzas === 'todo' || pago.mes === mesFinanzas) {
         ingresos += Number(pago.monto || 0);
       }
     });
-
-    // Sumar egresos (Horas trabajadas * tarifa en el mes)
     registrosFirebase.forEach(reg => {
       if (mesFinanzas === 'todo' || reg.fecha?.startsWith(mesFinanzas)) {
         egresos += (Number(reg.horas || 0) * Number(reg.tarifa || 0));
       }
     });
-
     return { ingresos, egresos, balance: ingresos - egresos };
   }
 
-  // ===============================================
-  // FUNCIONES DE GUARDADO (FIREBASE)
-  // ===============================================
   const handleToggleActivoProfesor = async (id, estadoActual) => {
     try {
       const profRef = doc(db, "profesores", id); await updateDoc(profRef, { activo: !estadoActual });
@@ -363,7 +350,6 @@ function App() {
     } catch (error) { setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); }
   }
 
-  // NUEVO: GUARDAR PAGO
   const handleAgregarPago = async (e) => {
     e.preventDefault();
     if (!nuevoPagoAlumno || !nuevoPagoMonto || !nuevoPagoMes) {
@@ -471,7 +457,7 @@ function App() {
       .login-input { border: none; background: transparent; padding: 14px 0; width: 100%; outline: none; font-size: 14px; color: #4b5563; }
       .login-btn { background-color: #3b82f6; color: white; border: none; width: 100%; padding: 14px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s; letter-spacing: 0.5px; }
       .login-btn:hover { background-color: #2563eb; }
-      .tarjeta-notificacion { display: flex; align-items: center; gap: 16px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 24px; padding: 16px 20px; width: 320px; cursor: pointer; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06); transition: all 0.2s ease; }
+      .tarjeta-notificacion { display: flex; align-items: center; gap: 16px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 24px; padding: 16px 20px; width: 320px; cursor: pointer; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06); transition: all 0.2s ease; box-sizing: border-box; }
       .tarjeta-notificacion:hover { background: #ffffff; box-shadow: 0 6px 32px rgba(0, 0, 0, 0.1); transform: translateY(-3px); }
       .avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; font-weight: 600; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
       .btn-flotante { transition: all 0.2s ease; }
@@ -704,13 +690,9 @@ function App() {
                 </div>
               )}
 
-              {/* ==================================================== */}
-              {/* PESTAÑA NUEVA: FINANZAS Y PAGOS */}
-              {/* ==================================================== */}
               {adminTab === 'finanzas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   
-                  {/* Tarjetas de Resumen Financiero */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero</h2>
                     <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
@@ -736,10 +718,7 @@ function App() {
                     </div>
                   </div>
 
-                  {/* Panel de registro y tabla */}
                   <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                    
-                    {/* Formulario Izquierdo */}
                     <div style={{ flex: '1 1 300px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Pago</h2>
                       <form onSubmit={handleAgregarPago} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -768,7 +747,6 @@ function App() {
                       </form>
                     </div>
 
-                    {/* Historial Derecho */}
                     <div style={{ flex: '2 1 400px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Pagos ({mesFinanzas === 'todo' ? 'General' : mesFinanzas})</h2>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
@@ -791,7 +769,6 @@ function App() {
                         )}
                       </div>
                     </div>
-
                   </div>
                 </div>
               )}
@@ -882,7 +859,7 @@ function App() {
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👥 Personal Registrado</h2>
                       
-                      {/* SE HA CORREGIDO ESTE DIV PARA QUE NO SE ENCIERRE EN UN SCROLL INTERNO */}
+                      {/* LA CAJA AHORA CRECE HACIA ABAJO SIN SCROLL INTERNO */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {profesores.map(prof => (
                           <div key={prof.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: prof.activo !== false ? 1 : 0.5 }}>
@@ -1156,16 +1133,24 @@ function App() {
           <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '30px' }}>Boss Language Center</h1>
           <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>Selecciona tu perfil docente</p>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        
+        {/* LA MEJORA VISUAL DE LAS DOS COLUMNAS APLICADA AQUÍ */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
           {profesoresActivos.map((profesor) => (
             <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion">
               <div className="avatar" style={{ backgroundColor: profesor.color }}>{profesor.nombre.charAt(0)}</div>
-              <div className="textos">
+              <div className="textos" style={{ textAlign: 'left' }}>
                 <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre}</h2>
                 <p style={{ margin: 0, fontSize: '13px', color: '#5f6368' }}>Language Teacher</p>
               </div>
             </div>
           ))}
+          {profesoresActivos.length === 0 && (
+            <div style={{ padding: '20px', color: '#6b7280', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed #d1d5db', width: '100%', maxWidth: '320px' }}>
+              <p style={{ margin: 0 }}>No hay profesores registrados.</p>
+              <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>Usa el <strong>Panel Admin</strong> arriba a la derecha para agregar uno.</p>
+            </div>
+          )}
         </div>
       </div>
     </>
