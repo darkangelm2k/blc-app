@@ -1,0 +1,1046 @@
+import { useState, useEffect } from 'react'
+import { db } from './firebase'
+import { collection, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+
+function App() {
+  const [accesoGlobal, setAccesoGlobal] = useState(false)
+  const [usuarioGlobal, setUsuarioGlobal] = useState('')
+  const [claveGlobal, setClaveGlobal] = useState('')
+  const [errorLoginGlobal, setErrorLoginGlobal] = useState(false)
+
+  const [profesorAAutenticar, setProfesorAAutenticar] = useState(null)
+  const [pinInput, setPinInput] = useState('')
+  const [errorPin, setErrorPin] = useState(false)
+
+  const [profesorSeleccionado, setProfesorSeleccionado] = useState(null)
+  const [claseSeleccionada, setClaseSeleccionada] = useState(null)
+  
+  const [mostrarError, setMostrarError] = useState(false)
+  const [mensajeExito, setMensajeExito] = useState('')
+  const [mostrarModalExportar, setMostrarModalExportar] = useState(false)
+  const [mesExportar, setMesExportar] = useState('todo')
+  const [mostrarPlanilla, setMostrarPlanilla] = useState(false)
+  const [mesPlanilla, setMesPlanilla] = useState('Agosto 2026')
+
+  const [asistencia, setAsistencia] = useState({})
+  const [notas, setNotas] = useState({})
+  const [obsIndividual, setObsIndividual] = useState({})
+  const [fechaClase, setFechaClase] = useState('')
+  const [horasClase, setHorasClase] = useState('')
+  const [obsGeneral, setObsGeneral] = useState('')
+
+  const [profesores, setProfesores] = useState([])
+  const [clasesFirebase, setClasesFirebase] = useState([]) 
+  const [registrosFirebase, setRegistrosFirebase] = useState([]) 
+  
+  const [vistaAdmin, setVistaAdmin] = useState(false)
+  const [mostrarModalAdmin, setMostrarModalAdmin] = useState(false)
+  const [claveAdminInput, setClaveAdminInput] = useState('')
+  const [errorAdminPin, setErrorAdminPin] = useState(false)
+
+  const [nombreNuevoProfesor, setNombreNuevoProfesor] = useState('')
+  const [nuevaClaseTitulo, setNuevaClaseTitulo] = useState('')
+  const [nuevaClaseCurso, setNuevaClaseCurso] = useState('')
+  const [nuevaClaseTarifa, setNuevaClaseTarifa] = useState('')
+  const [nuevaClaseDias, setNuevaClaseDias] = useState('')
+  const [nuevaClaseHorario, setNuevaClaseHorario] = useState('')
+  const [nuevaClaseEstudiantes, setNuevaClaseEstudiantes] = useState('')
+  const [nuevaClaseProfesorId, setNuevaClaseProfesorId] = useState('')
+
+  const [terminoBusqueda, setTerminoBusqueda] = useState('')
+  const [mesFiltroBusqueda, setMesFiltroBusqueda] = useState('todo')
+  const [tipoBusqueda, setTipoBusqueda] = useState('alumno') 
+
+  const [editandoCurso, setEditandoCurso] = useState(false)
+  const [nuevoNombreCurso, setNuevoNombreCurso] = useState('')
+
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        const profesSnap = await getDocs(collection(db, "profesores"));
+        const profesArr = profesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setProfesores(profesArr);
+
+        const clasesSnap = await getDocs(collection(db, "clases"));
+        const clasesArr = clasesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setClasesFirebase(clasesArr);
+
+        const regSnap = await getDocs(collection(db, "registrosClases"));
+        const regArr = regSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setRegistrosFirebase(regArr);
+      } catch (error) {
+        console.error("Error al cargar datos:", error);
+      }
+    };
+    if(accesoGlobal) cargarDatos();
+  }, [accesoGlobal, mensajeExito]); 
+
+
+  // ==========================================
+  // MOTOR MAESTRO DE DISEÑO UNIFICADO DE PDFS
+  // ==========================================
+  const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
+    let currentY = 15;
+
+    try {
+      const img = new Image();
+      img.src = '/boss_accredible.png';
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF'; 
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
+      
+      const imgWidth = 45; 
+      const imgHeight = (img.height / img.width) * imgWidth; 
+      
+      doc.addImage(imgData, 'JPEG', 14, 10, imgWidth, imgHeight);
+      currentY = 10 + imgHeight + 15; 
+
+    } catch (e) {
+      console.log("Aviso: Logo no cargó, utilizando texto estándar.");
+      currentY = 25;
+    }
+
+    doc.setFontSize(24);
+    doc.setTextColor(37, 99, 235); 
+    doc.text(titulo, 14, currentY);
+    currentY += 10;
+
+    doc.setFontSize(11);
+    doc.setTextColor(55, 65, 81);
+    subtitulos.forEach((texto) => {
+      doc.text(texto, 14, currentY);
+      currentY += 6; 
+    });
+
+    return currentY + 8; 
+  };
+
+
+  // ==========================================
+  // GENERADORES DE DOCUMENTOS OFICIALES
+  // ==========================================
+
+  // 1. PDF DEL RESUMEN DE PAGO (PLANILLA)
+  const generarPDFPlanilla = async () => {
+    const doc = new jsPDF();
+    
+    const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [
+      `Profesor: ${profesorSeleccionado.nombre}`,
+      `Periodo: ${mesPlanilla}`,
+      `Centro: Boss Language Center SAC`
+    ]);
+
+    let mesPrefix = "";
+    if (mesPlanilla === "Agosto 2026") mesPrefix = "2026-08";
+    else if (mesPlanilla === "Julio 2026") mesPrefix = "2026-07";
+
+    const registrosMes = registrosFirebase.filter(reg => 
+      reg.profesor === profesorSeleccionado.nombre && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))
+    );
+
+    let totalPagar = 0;
+    const tableData = registrosMes.map(reg => {
+      const monto = (reg.horas || 0) * (reg.tarifa || 0);
+      totalPagar += monto;
+      return [reg.fecha || '--', reg.clase || '--', `${reg.horas || 0} hrs`, `S/. ${reg.tarifa || 0}`, `S/. ${monto.toFixed(2)}`];
+    });
+
+    autoTable(doc, {
+      startY: startY,
+      head: [['Fecha', 'Clase', 'Horas Impartidas', 'Tarifa/Hora', 'Subtotal']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235] }, 
+      styles: { fontSize: 9, cellPadding: 3 }
+    });
+
+    doc.setFontSize(16);
+    doc.setTextColor(5, 150, 105); 
+    doc.text(`Total a Facturar: S/. ${totalPagar.toFixed(2)}`, 14, doc.lastAutoTable.finalY + 15);
+
+    doc.setFontSize(10);
+    doc.setTextColor(75, 85, 99);
+    doc.text("Instrucciones: Emitir el Recibo por Honorarios a Boss Language Center SAC (RUC: 20603806795).", 14, doc.lastAutoTable.finalY + 25);
+
+    doc.save(`Planilla_${profesorSeleccionado.nombre}_${mesPlanilla.replace(' ', '_')}.pdf`);
+    setMostrarPlanilla(false);
+    setMensajeExito('¡Planilla generada exitosamente! 💰✅');
+    setTimeout(() => setMensajeExito(''), 4000);
+  }
+
+  // 2. PDF DE REPORTE DE CLASE (PROFESOR)
+  const generarPDFReporteClase = async () => {
+    const doc = new jsPDF();
+    
+    let periodoStr = mesExportar === 'todo' ? 'Historial Completo' : mesExportar;
+    
+    const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [
+      `Clase: ${claseSeleccionada.titulo}`,
+      `Nivel Actual: ${claseSeleccionada.curso}`,
+      `Profesor a cargo: ${profesorSeleccionado.nombre}`,
+      `Periodo: ${periodoStr}`
+    ]);
+
+    let mesPrefix = "";
+    if (mesExportar === "Agosto 2026") mesPrefix = "2026-08";
+    else if (mesExportar === "Julio 2026") mesPrefix = "2026-07";
+    else if (mesExportar === "Junio 2026") mesPrefix = "2026-06";
+
+    const registrosFiltrados = registrosFirebase.filter(reg => 
+      reg.clase === claseSeleccionada.titulo && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))
+    ).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+
+    const tableData = [];
+    registrosFiltrados.forEach(reg => {
+      const estudiantes = Object.keys(reg.asistencia || {});
+      estudiantes.forEach(est => {
+        const observacion = reg.observacionesIndividuales?.[est] || reg.observacionGeneral || '--';
+        tableData.push([
+          reg.fecha || '--', 
+          est, 
+          (reg.asistencia[est] || '--').replace('-', ' '), 
+          reg.notas[est] || '--',
+          observacion
+        ]);
+      });
+    });
+
+    autoTable(doc, {
+      startY: startY,
+      head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235] },
+      styles: { fontSize: 9, cellPadding: 3 }
+    });
+
+    doc.save(`Reporte_${claseSeleccionada.titulo}.pdf`);
+    setMostrarModalExportar(false);
+    setMensajeExito('¡Reporte exportado con éxito! 📄✅');
+    setTimeout(() => setMensajeExito(''), 4000);
+  }
+
+  // 3. PDF DEL PANEL ADMINISTRATIVO (EXPEDIENTE DEFINITIVO UNIFICADO 100%)
+  const generarPDFAdmin = async (resultados) => {
+    if(resultados.length === 0) return;
+    const doc = new jsPDF();
+    
+    let periodoStr = mesFiltroBusqueda === 'todo' ? 'Historial Completo' : mesFiltroBusqueda;
+    
+    // Extraemos la información del registro más reciente para el encabezado
+    const claseRef = resultados[0].clase || '--';
+    const profesorRef = resultados[0].profesor || '--';
+    const claseEnBD = clasesFirebase.find(c => c.titulo === claseRef);
+    const nivelReal = resultados[0].nivel || (claseEnBD ? claseEnBD.curso : '--');
+
+    const tituloPDF = tipoBusqueda === 'alumno' ? "Expediente Académico del Alumno" : "Reporte Académico de Grupo";
+
+    // EXACTAMENTE el mismo encabezado que el del profesor
+    const subtitulos = [
+      `Clase: ${claseRef}`,
+      `Nivel Actual: ${nivelReal}`,
+      `Profesor a cargo: ${profesorRef}`,
+      `Periodo: ${periodoStr}`
+    ];
+
+    const startY = await agregarEncabezadoPDF(doc, tituloPDF, subtitulos);
+    
+    const tableData = [];
+    
+    resultados.forEach(reg => {
+      const nombres = Object.keys(reg.asistencia || {});
+      
+      let alumnosAMostrar = nombres;
+      if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
+         const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+         if (match) alumnosAMostrar = [match];
+      }
+
+      alumnosAMostrar.forEach(alum => {
+         const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
+         
+         // EXACTAMENTE las mismas 5 columnas que el del profesor
+         tableData.push([
+           reg.fecha || '--',
+           alum || '--',
+           (reg.asistencia?.[alum] || '--').replace('-', ' '),
+           reg.notas?.[alum] || '--',
+           observacion
+         ]);
+      });
+    });
+
+    autoTable(doc, {
+      startY: startY,
+      head: [['Fecha', 'Alumno', 'Asistencia', 'Nota', 'Observaciones']], // Sin Clase/Nivel ni Profesor
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235] },
+      styles: { fontSize: 9, cellPadding: 3 } 
+    });
+
+    doc.save(`Reporte_Admin_${terminoBusqueda || 'BLC'}.pdf`);
+    setMensajeExito('¡Reporte exportado con formato estándar! 📊✅');
+    setTimeout(() => setMensajeExito(''), 4000);
+  }
+
+  // ==========================================
+  // BUSCADOR INTELIGENTE (ALUMNO O CLASE)
+  // ==========================================
+  const resultadosBusqueda = registrosFirebase.filter(reg => {
+    if (terminoBusqueda.trim() === '') return false;
+    
+    if (tipoBusqueda === 'alumno') {
+      const nombresAlumnos = Object.keys(reg.asistencia || {});
+      const alumnoEncontrado = nombresAlumnos.find(nombre => nombre.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+      if (!alumnoEncontrado) return false;
+    } else if (tipoBusqueda === 'clase') {
+      const matchClase = reg.clase && reg.clase.toLowerCase().includes(terminoBusqueda.toLowerCase());
+      if (!matchClase) return false;
+    }
+
+    if (mesFiltroBusqueda !== 'todo') {
+        const mesRegistro = reg.fecha?.substring(0, 7);
+        if (mesRegistro !== mesFiltroBusqueda) return false;
+    }
+    return true;
+  }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+
+  // ==========================================
+  // FUNCIONES BÁSICAS DE GUARDADO Y UI
+  // ==========================================
+  const handleAgregarProfesor = async (e) => {
+    e.preventDefault();
+    if (nombreNuevoProfesor.trim() === '') return;
+    const colores = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#8E24AA', '#F538A0', '#00ACC1', '#FF7043'];
+    const colorAsignado = colores[Math.floor(Math.random() * colores.length)];
+    try {
+      await addDoc(collection(db, "profesores"), { nombre: nombreNuevoProfesor, color: colorAsignado, activo: true });
+      setNombreNuevoProfesor(''); setMensajeExito('Profesor registrado correctamente ✅');
+      setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
+    }
+  }
+
+  const handleAgregarClase = async (e) => {
+    e.preventDefault();
+    if (!nuevaClaseTitulo || !nuevaClaseCurso || !nuevaClaseTarifa || !nuevaClaseEstudiantes || !nuevaClaseProfesorId || !nuevaClaseDias || !nuevaClaseHorario) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000); return;
+    }
+    const listaEstudiantes = nuevaClaseEstudiantes.split(',').map(est => est.trim()).filter(est => est !== '');
+    try {
+      await addDoc(collection(db, "clases"), {
+        titulo: nuevaClaseTitulo, curso: nuevaClaseCurso, tarifa: Number(nuevaClaseTarifa),
+        dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: listaEstudiantes, profesorId: nuevaClaseProfesorId
+      });
+      setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setNuevaClaseEstudiantes(''); setNuevaClaseProfesorId('');
+      setMensajeExito('Clase creada y asignada correctamente 📚✅');
+      setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
+    }
+  }
+
+  const handleActualizarCurso = async () => {
+    if (nuevoNombreCurso.trim() === '') return;
+    try {
+      const claseRef = doc(db, "clases", claseSeleccionada.id);
+      await updateDoc(claseRef, { curso: nuevoNombreCurso });
+      setClasesFirebase(clasesFirebase.map(c => c.id === claseSeleccionada.id ? { ...c, curso: nuevoNombreCurso } : c));
+      setClaseSeleccionada({ ...claseSeleccionada, curso: nuevoNombreCurso });
+      setEditandoCurso(false);
+      setMensajeExito('¡Nivel del alumno actualizado con éxito! 🚀');
+      setTimeout(() => setMensajeExito(''), 3000);
+    } catch (error) {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 3000);
+    }
+  }
+
+  const misClases = profesorSeleccionado 
+    ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id) 
+    : [];
+
+  const profesoresActivos = profesores.filter(profesor => profesor.activo === true)
+
+  useEffect(() => {
+    setAsistencia({})
+    setNotas({})
+    setObsIndividual({})
+    setFechaClase('')
+    setHorasClase('')
+    setObsGeneral('')
+    setEditandoCurso(false)
+  }, [claseSeleccionada])
+
+  const handleLoginGlobal = (e) => {
+    e.preventDefault()
+    if (usuarioGlobal === 'bosslanguagecenter' && claveGlobal === 'cambiandovidas') {
+      setAccesoGlobal(true); setErrorLoginGlobal(false);
+    } else {
+      setErrorLoginGlobal(true); setTimeout(() => setErrorLoginGlobal(false), 3000);
+    }
+  }
+
+  const handleLoginProfesor = (e) => {
+    e.preventDefault()
+    const partesNombre = profesorAAutenticar.nombre.split(' ')
+    const iniciales = (partesNombre[0].charAt(0) + (partesNombre[1] ? partesNombre[1].charAt(0) : '')).toUpperCase()
+    const pinCorrecto = `${iniciales}2026`
+
+    if (pinInput.toUpperCase() === pinCorrecto) {
+      setProfesorSeleccionado(profesorAAutenticar); setProfesorAAutenticar(null); setPinInput(''); setErrorPin(false);
+    } else {
+      setErrorPin(true); setTimeout(() => setErrorPin(false), 3000);
+    }
+  }
+
+  const handleLoginAdmin = (e) => {
+    e.preventDefault();
+    if(claveAdminInput === 'bossadmin2026') {
+      setVistaAdmin(true); setMostrarModalAdmin(false); setClaveAdminInput(''); setErrorAdminPin(false);
+    } else {
+      setErrorAdminPin(true); setTimeout(() => setErrorAdminPin(false), 3000);
+    }
+  }
+
+  const handleCerrarSesionProfesor = () => {
+    setProfesorSeleccionado(null)
+    setClaseSeleccionada(null)
+  }
+
+  const handleGuardarRegistro = async () => {
+    let formularioCompleto = true
+    if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false
+    
+    claseSeleccionada.estudiantes.forEach(estudiante => {
+      if (!asistencia[estudiante] || !notas[estudiante] || notas[estudiante].trim() === '') {
+        formularioCompleto = false
+      }
+    })
+
+    if (formularioCompleto) {
+      try {
+        await addDoc(collection(db, "registrosClases"), {
+          profesor: profesorSeleccionado.nombre,
+          clase: claseSeleccionada.titulo,
+          nivel: claseSeleccionada.curso,
+          fecha: fechaClase,
+          horas: Number(horasClase),
+          tarifa: claseSeleccionada.tarifa,
+          asistencia: asistencia,
+          notas: notas,
+          observacionesIndividuales: obsIndividual,
+          observacionGeneral: obsGeneral,
+          fechaRegistro: new Date().toISOString()
+        });
+        setMensajeExito('¡Registro guardado en la nube exitosamente! ☁️✅')
+        setTimeout(() => setMensajeExito(''), 4000)
+        setAsistencia({}); setNotas({}); setObsIndividual({}); setFechaClase(''); setHorasClase(''); setObsGeneral('');
+      } catch (error) {
+        setMostrarError(true); setTimeout(() => setMostrarError(false), 4000);
+      }
+    } else {
+      setMostrarError(true); setTimeout(() => setMostrarError(false), 4000);
+    }
+  }
+
+  const obtenerEstiloBoton = (estudiante, estado, colorBorde, colorFondo, colorTexto) => {
+    const estadoActual = asistencia[estudiante];
+    const algunSeleccionado = estadoActual !== undefined;
+    const estaSeleccionado = estadoActual === estado;
+    const mostrarColor = !algunSeleccionado || estaSeleccionado;
+
+    return {
+      padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`,
+      backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af',
+      cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease',
+      transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+      opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1
+    }
+  }
+
+  const estilosGlobales = (
+    <style>{`
+      body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #e5e7eb; }
+      .login-card { background: white; padding: 40px 40px 30px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 100%; max-width: 320px; text-align: center; position: relative; }
+      .login-input-group { background-color: #f3f4f6; border-radius: 6px; margin-bottom: 16px; display: flex; align-items: center; padding: 0 15px; }
+      .login-input { border: none; background: transparent; padding: 14px 0; width: 100%; outline: none; font-size: 14px; color: #4b5563; }
+      .login-btn { background-color: #3b82f6; color: white; border: none; width: 100%; padding: 14px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s; letter-spacing: 0.5px; }
+      .login-btn:hover { background-color: #2563eb; }
+      .tarjeta-notificacion { display: flex; align-items: center; gap: 16px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.8); border-radius: 24px; padding: 16px 20px; width: 320px; cursor: pointer; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06); transition: all 0.2s ease; }
+      .tarjeta-notificacion:hover { background: #ffffff; box-shadow: 0 6px 32px rgba(0, 0, 0, 0.1); transform: translateY(-3px); }
+      .avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; font-weight: 600; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+      .btn-flotante { transition: all 0.2s ease; }
+      .btn-flotante:hover { transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+      .btn-flotante:active { transform: translateY(1px); }
+      .input-flotante { transition: all 0.2s ease; text-align: left; }
+      .input-flotante:focus, .input-flotante:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); border-color: #3b82f6 !important; }
+      @keyframes deslizarAbajo { from { top: -50px; opacity: 0; } to { top: 20px; opacity: 1; } }
+      @keyframes aparecerFade { from { opacity: 0; transform: scale(0.95) translate(-50%, -50%); } to { opacity: 1; transform: scale(1) translate(-50%, -50%); } }
+      @keyframes vibrar { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+    `}</style>
+  )
+
+  if (!accesoGlobal) {
+    return (
+      <>
+        {estilosGlobales}
+        <div className="login-container">
+          <div className="login-card" style={{ animation: errorLoginGlobal ? 'vibrar 0.3s ease' : 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '10px' }}>
+              <img src="/boss_accredible.png" alt="Logo" style={{ height: '70px', width: 'auto', objectFit: 'contain' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+            </div>
+            <h2 style={{ color: '#4b5563', fontSize: '18px', fontWeight: '500', marginBottom: '25px' }}>User Log in</h2>
+            <form onSubmit={handleLoginGlobal}>
+              <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
+                <input type="text" placeholder="User ID" className="login-input" value={usuarioGlobal} onChange={(e) => setUsuarioGlobal(e.target.value)} />
+                <span style={{ color: '#9ca3af', fontSize: '18px' }}>👤</span>
+              </div>
+              <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
+                <input type="password" placeholder="••••••••" className="login-input" value={claveGlobal} onChange={(e) => setClaveGlobal(e.target.value)} />
+                <span style={{ color: '#9ca3af', fontSize: '18px' }}>🔑</span>
+              </div>
+              {errorLoginGlobal && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0', textAlign: 'left' }}>Credenciales incorrectas.</p>}
+              <button type="submit" className="login-btn">LOGIN</button>
+            </form>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  // ==========================================
+  // PANTALLA SECRETA DE ADMINISTRACIÓN
+  // ==========================================
+  if (vistaAdmin) {
+    return (
+      <>
+        {estilosGlobales}
+        
+        {mostrarError && (
+          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(239, 68, 68, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>Faltan datos por llenar</h4></div>
+          </div>
+        )}
+
+        {mensajeExito && (
+          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+            <span style={{ fontSize: '24px' }}>☁️</span>
+            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>{mensajeExito}</h4></div>
+          </div>
+        )}
+
+        <div style={{ padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#f4f6f8' }}>
+          
+          <div style={{ width: '100%', maxWidth: '1000px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+            <button onClick={() => setVistaAdmin(false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', color: '#4b5563', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              ← Volver al Panel
+            </button>
+            <h1 style={{ color: '#1f2937', margin: 0, fontSize: '24px' }}>Centro de Operaciones (Admin)</h1>
+          </div>
+
+          <div style={{ display: 'flex', gap: '20px', width: '100%', maxWidth: '1000px', flexWrap: 'wrap' }}>
+            
+            <div style={{ flex: '1 1 300px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+              <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👤 1. Nuevo Profesor</h2>
+              <form onSubmit={handleAgregarProfesor} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <input type="text" placeholder="Nombre completo" value={nombreNuevoProfesor} onChange={(e) => setNombreNuevoProfesor(e.target.value)} className="input-flotante" style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+                <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Registrar Profesor</button>
+              </form>
+
+              <div style={{ marginTop: '20px' }}>
+                <h3 style={{ fontSize: '14px', color: '#6b7280', margin: '0 0 10px 0' }}>Profesores en Base de Datos:</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '150px', overflowY: 'auto' }}>
+                  {profesores.map(prof => (
+                    <div key={prof.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#f9fafb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                      <div className="avatar" style={{ backgroundColor: prof.color, width: '28px', height: '28px', fontSize: '12px' }}>{prof.nombre.charAt(0)}</div>
+                      <span style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>{prof.nombre}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ flex: '2 1 500px', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+              <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📚 2. Nueva Clase / Curso</h2>
+              <form onSubmit={handleAgregarClase} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nombre identificador</label>
+                    <input type="text" placeholder="Ej: Grupo Ana" value={nuevaClaseTitulo} onChange={(e) => setNuevaClaseTitulo(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nivel / Programa</label>
+                    <input type="text" placeholder="Ej: Preparación B2" value={nuevaClaseCurso} onChange={(e) => setNuevaClaseCurso(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Días de clase</label>
+                    <input type="text" placeholder="Ej: Lunes y Miércoles" value={nuevaClaseDias} onChange={(e) => setNuevaClaseDias(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Horario regular</label>
+                    <input type="text" placeholder="Ej: 20:00 - 21:30" value={nuevaClaseHorario} onChange={(e) => setNuevaClaseHorario(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Tarifa por Hora (S/.)</label>
+                    <input type="number" placeholder="Ej: 30" value={nuevaClaseTarifa} onChange={(e) => setNuevaClaseTarifa(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Asignar al Profesor:</label>
+                    <select value={nuevaClaseProfesorId} onChange={(e) => setNuevaClaseProfesorId(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                      <option value="">-- Seleccionar --</option>
+                      {profesores.map(prof => (
+                        <option key={prof.id} value={prof.id}>{prof.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Lista de Estudiantes (Separados por coma)</label>
+                  <input type="text" placeholder="Ej: Ana Perez, Carlos Ruiz, Sofia Vega" value={nuevaClaseEstudiantes} onChange={(e) => setNuevaClaseEstudiantes(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+
+                <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '10px' }}>Crear y Asignar Clase</button>
+              </form>
+            </div>
+
+            <div style={{ flex: '1 1 100%', backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginTop: '10px' }}>
+              <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 3. Expediente de Alumnos y Reportes</h2>
+              
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                <select 
+                  value={tipoBusqueda} 
+                  onChange={(e) => {setTipoBusqueda(e.target.value); setTerminoBusqueda('');}} 
+                  className="input-flotante" 
+                  style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontWeight: '500', color: '#374151', cursor: 'pointer' }}
+                >
+                  <option value="alumno">👤 Alumno</option>
+                  <option value="clase">📚 Grupo / Empresa</option>
+                </select>
+
+                <input 
+                  type="text" 
+                  placeholder={tipoBusqueda === 'alumno' ? "Ej: Ana Castillo..." : "Ej: Avanzado..."}
+                  value={terminoBusqueda} 
+                  onChange={(e) => setTerminoBusqueda(e.target.value)} 
+                  className="input-flotante" 
+                  style={{ flex: 2, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} 
+                />
+
+                <select 
+                  value={mesFiltroBusqueda} 
+                  onChange={(e) => setMesFiltroBusqueda(e.target.value)} 
+                  className="input-flotante" 
+                  style={{ flex: 1, minWidth: '150px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}
+                >
+                  <option value="todo">Todos los meses</option>
+                  <option value="2026-08">Agosto 2026</option>
+                  <option value="2026-07">Julio 2026</option>
+                  <option value="2026-06">Junio 2026</option>
+                </select>
+                <button 
+                  onClick={() => generarPDFAdmin(resultadosBusqueda)} 
+                  className="btn-flotante" 
+                  style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  📄 Descargar PDF
+                </button>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                {terminoBusqueda.trim() === '' ? (
+                  <div style={{ padding: '30px', textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
+                    <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
+                      Escribe el nombre de un {tipoBusqueda === 'alumno' ? 'alumno' : 'grupo'} en la barra de búsqueda para extraer su historial completo.
+                    </p>
+                  </div>
+                ) : resultadosBusqueda.length === 0 ? (
+                  <p style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>No se encontraron registros para "{terminoBusqueda}".</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '700px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f3f4f6', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>
+                        <th style={{ padding: '12px' }}>Fecha</th>
+                        <th style={{ padding: '12px' }}>Alumno</th>
+                        <th style={{ padding: '12px' }}>Clase / Nivel</th>
+                        <th style={{ padding: '12px' }}>Profesor</th>
+                        <th style={{ padding: '12px' }}>Asistencia</th>
+                        <th style={{ padding: '12px' }}>Nota</th>
+                        <th style={{ padding: '12px' }}>Observaciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resultadosBusqueda.map((reg, idx) => {
+                          const nombres = Object.keys(reg.asistencia || {});
+                          
+                          let alumnosAMostrar = nombres;
+                          if (tipoBusqueda === 'alumno') {
+                            const match = nombres.find(n => n.toLowerCase().includes(terminoBusqueda.toLowerCase()));
+                            if (match) alumnosAMostrar = [match];
+                          }
+                          
+                          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
+                          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
+
+                          return alumnosAMostrar.map((alum, subIdx) => {
+                            const estado = reg.asistencia?.[alum];
+                            const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
+                            const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
+                            
+                            return (
+                              <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                  <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha}</td>
+                                  <td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum}</td>
+                                  <td style={{ padding: '12px' }}>{reg.clase} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td>
+                                  <td style={{ padding: '12px' }}>{reg.profesor}</td>
+                                  <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado?.replace('-', ' ')}</td>
+                                  <td style={{ padding: '12px', fontWeight: 'bold' }}>{reg.notas?.[alum] || '--'}</td>
+                                  <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
+                              </tr>
+                            )
+                          });
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  // ==========================================
+  // PANTALLA 3: PANEL DE CONTROL DEL PROFESOR
+  // ==========================================
+  if (profesorSeleccionado) {
+
+    let mesPrefixPlanilla = "";
+    if (mesPlanilla === "Agosto 2026") mesPrefixPlanilla = "2026-08";
+    else if (mesPlanilla === "Julio 2026") mesPrefixPlanilla = "2026-07";
+
+    const registrosMesProfesor = registrosFirebase.filter(reg => 
+      reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla))
+    );
+    const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
+
+    return (
+      <>
+        {estilosGlobales}
+        {mostrarError && (
+          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(239, 68, 68, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+            <span style={{ fontSize: '24px' }}>⚠️</span>
+            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>Faltan datos obligatorios</h4><p style={{ margin: '4px 0 0 0', fontSize: '13px', opacity: 0.9 }}>Asegúrate de marcar la asistencia, notas, fecha y horas.</p></div>
+          </div>
+        )}
+
+        {mensajeExito && (
+          <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px', animation: 'deslizarAbajo 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+            <span style={{ fontSize: '24px' }}>☁️</span>
+            <div><h4 style={{ margin: 0, fontSize: '15px', fontWeight: '600' }}>{mensajeExito}</h4></div>
+          </div>
+        )}
+
+        {mostrarModalExportar && (
+          <>
+            <div onClick={() => setMostrarModalExportar(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '400px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transformOrigin: 'top left', animation: 'aparecerFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
+                <div><h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>Exportar Reporte</h2><p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>Clase: <strong>{claseSeleccionada?.titulo}</strong></p></div>
+                <button onClick={() => setMostrarModalExportar(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
+              </div>
+              <div style={{ marginBottom: '24px', textAlign: 'left' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Selecciona el periodo:</label>
+                <select value={mesExportar} onChange={(e) => setMesExportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827', cursor: 'pointer', textAlign: 'left' }}>
+                  <option value="Agosto 2026">Agosto 2026</option>
+                  <option value="Julio 2026">Julio 2026</option>
+                  <option value="todo">📚 Exportar todo el historial</option>
+                </select>
+              </div>
+              <button onClick={generarPDFReporteClase} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                ⬇️ Descargar PDF
+              </button>
+            </div>
+          </>
+        )}
+
+        {mostrarPlanilla && (
+          <>
+            <div onClick={() => setMostrarPlanilla(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '500px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transformOrigin: 'top left', animation: 'aparecerFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
+                <div><h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>Resumen de Pago Mensual</h2><p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>Profesor: <strong>{profesorSeleccionado.nombre}</strong></p></div>
+                <button onClick={() => setMostrarPlanilla(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
+              </div>
+              <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Periodo a facturar:</label>
+                <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827', cursor: 'pointer', textAlign: 'left' }}>
+                  <option value="Agosto 2026">Agosto 2026</option>
+                  <option value="Julio 2026">Julio 2026</option>
+                </select>
+              </div>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <p style={{ margin: 0, color: '#6b7280', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Monto a cobrar ({mesPlanilla})</p>
+                <h1 style={{ margin: '8px 0', color: '#059669', fontSize: '36px' }}>S/. {montoCalculadoPantalla.toFixed(2)}</h1>
+                <p style={{ margin: 0, color: '#9ca3af', fontSize: '12px' }}>Cálculo basado en las horas que registraste este periodo.</p>
+              </div>
+              <button onClick={generarPDFPlanilla} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                ⬇️ Descargar PDF Oficial
+              </button>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', height: '100vh', backgroundColor: '#f4f6f8' }}>
+          <div style={{ width: '300px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb' }}>
+              <button onClick={handleCerrarSesionProfesor} className="btn-flotante" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', marginLeft: '-10px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                ← Cerrar Sesión
+              </button>
+              <div style={{ marginBottom: '15px', textAlign: 'left' }}>
+                <img src="/boss_accredible.png" alt="Logo" style={{ width: '90px', height: 'auto', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+                <div>
+                  <h2 style={{ margin: '0 0 2px 0', fontSize: '18px', color: '#111827' }}>Mis Clases</h2>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Cursos asignados</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 12px', overflowY: 'auto', flex: 1 }}>
+              {misClases.length === 0 ? (
+                <p style={{ color: '#9ca3af', textAlign: 'center', fontSize: '13px', marginTop: '20px' }}>No tienes clases asignadas aún.</p>
+              ) : (
+                misClases.map((clase) => (
+                  <div key={clase.id} onClick={() => setClaseSeleccionada(clase)} className="btn-flotante" style={{ padding: '12px 16px', borderRadius: '12px', cursor: 'pointer', marginBottom: '8px', backgroundColor: claseSeleccionada?.id === clase.id ? '#eff6ff' : 'transparent', border: claseSeleccionada?.id === clase.id ? '1px solid #bfdbfe' : '1px solid transparent', textAlign: 'center' }}>
+                    <h4 style={{ margin: 0, color: claseSeleccionada?.id === clase.id ? '#1d4ed8' : '#374151', fontSize: '14px' }}>{clase.titulo}</h4>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6b7280' }}>{clase.estudiantes.length} alumno(s) • {clase.curso}</p>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#9ca3af', fontWeight: '500' }}>🕒 {clase.dias} | {clase.horario}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+              <button onClick={() => setMostrarPlanilla(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                📊 Ver y Exportar Pago
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto' }}>
+            {claseSeleccionada ? (
+              <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', maxWidth: '900px', margin: '0 auto' }}>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px' }}>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}></div>
+                    
+                    <div style={{ flex: 2, textAlign: 'center' }}>
+                      <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>Registro de Clase</h1>
+                      <p style={{ margin: '8px 0 0 0', color: '#6b7280', fontSize: '15px' }}>
+                        Clase seleccionada: <strong style={{ color: '#374151' }}>{claseSeleccionada.titulo}</strong>
+                      </p>
+                    </div>
+
+                    <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+                      <button onClick={() => setMostrarModalExportar(true)} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        📄 Exportar Reporte
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
+                    {editandoCurso ? (
+                      <>
+                        <input type="text" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} className="input-flotante" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', outline: 'none', fontSize: '13px', width: '200px' }} />
+                        <button onClick={handleActualizarCurso} style={{ background: '#10b981', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Guardar</button>
+                        <button onClick={() => setEditandoCurso(false)} style={{ background: '#ef4444', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>
+                          Nivel actual: {claseSeleccionada.curso}
+                        </span>
+                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }} title="Editar Nivel del Grupo">
+                          ✏️
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '32px' }}>
+                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
+                    Desempeño Individual
+                  </h3>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {claseSeleccionada.estudiantes.map((estudiante, index) => (
+                      <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
+                          <h4 style={{ margin: 0, color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'asistio'})} style={obtenerEstiloBoton(estudiante, 'asistio', '#86efac', '#dcfce7', '#166534')}>Asistió</button>
+                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'no-asistio'})} style={obtenerEstiloBoton(estudiante, 'no-asistio', '#fca5a5', '#fee2e2', '#991b1b')}>No asistió</button>
+                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'reprogramo'})} style={obtenerEstiloBoton(estudiante, 'reprogramo', '#fcd34d', '#fef3c7', '#92400e')}>Reprogramó</button>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                            <label style={{ fontSize: '14px', color: '#4b5563', fontWeight: '500' }}>Nota:</label>
+                            <input className="input-flotante" type="number" min="1" max="20" placeholder="--" value={notas[estudiante] || ''} onChange={(e) => setNotas({...notas, [estudiante]: e.target.value})} style={{ width: '65px', padding: '8px 10px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', textAlign: 'center' }} />
+                          </div>
+                        </div>
+                        <div style={{ width: '100%' }}>
+                          <input className="input-flotante" type="text" placeholder={`Observaciones específicas sobre ${estudiante} (Opcional)`} value={obsIndividual[estudiante] || ''} onChange={(e) => setObsIndividual({...obsIndividual, [estudiante]: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px', boxSizing: 'border-box', backgroundColor: 'white' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Fecha de la clase (Real)</label>
+                    <input className="input-flotante" type="date" value={fechaClase} onChange={(e) => setFechaClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', color: '#374151' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Horas impartidas (Real)</label>
+                    <input className="input-flotante" type="number" step="0.5" placeholder="Ej: 1.5" value={horasClase} onChange={(e) => setHorasClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Tarifa</label>
+                    <input className="input-flotante" type="text" value={`S/. ${claseSeleccionada.tarifa} / hr`} disabled style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', color: '#6b7280', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '32px' }}>
+                  <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>
+                    {claseSeleccionada.estudiantes.length > 1 ? "Temas vistos en clase (Observación general)" : "Observaciones de la clase"}
+                  </label>
+                  <textarea className="input-flotante" rows="3" placeholder="Detalles sobre los temas vistos hoy, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
+                </div>
+
+                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)' }}>
+                  Guardar Registro Completo
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+                <h3>Selecciona una clase del panel izquierdo para comenzar</h3>
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  // ==========================================
+  // PANTALLA 2: SELECCIÓN DE PERFIL DE PROFESOR
+  // ==========================================
+  return (
+    <>
+      {estilosGlobales}
+      
+      {mostrarModalAdmin && (
+        <>
+          <div onClick={() => {setMostrarModalAdmin(false); setErrorAdminPin(false); setClaveAdminInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+          <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center', animation: errorAdminPin ? 'vibrar 0.3s ease' : 'none' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: '#111827', color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>⚙️</div>
+            <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Acceso Administrativo</h2>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa la clave maestra para gestionar profesores y clases.</p>
+            <form onSubmit={handleLoginAdmin}>
+              <input type="password" placeholder="Clave Maestra" className="input-flotante" value={claveAdminInput} onChange={(e) => setClaveAdminInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorAdminPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', fontSize: '16px', boxSizing: 'border-box', textAlign: 'center' }} autoFocus />
+              {errorAdminPin && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>Clave incorrecta.</p>}
+              <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer' }}>Entrar al Panel</button>
+            </form>
+          </div>
+        </>
+      )}
+
+      {profesorAAutenticar && (
+        <>
+          <div onClick={() => {setProfesorAAutenticar(null); setErrorPin(false); setPinInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+          <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center', animation: errorPin ? 'vibrar 0.3s ease' : 'none' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: profesorAAutenticar.color, color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>
+              {profesorAAutenticar.nombre.charAt(0)}
+            </div>
+            <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Hola, {profesorAAutenticar.nombre.split(' ')[0]}</h2>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa tu PIN de seguridad para continuar.</p>
+            <form onSubmit={handleLoginProfesor}>
+              <input type="password" placeholder="Ingresa tu PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', fontSize: '16px', boxSizing: 'border-box', textAlign: 'center' }} autoFocus />
+              {errorPin && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>PIN incorrecto.</p>}
+              <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer' }}>Ingresar al Panel</button>
+            </form>
+          </div>
+        </>
+      )}
+
+      <div style={{ textAlign: 'center', padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '25px', left: '30px' }}>
+          <button onClick={() => setAccesoGlobal(false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', color: '#4b5563', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+            <span>🚪</span> Salir del sistema
+          </button>
+        </div>
+
+        <div style={{ position: 'absolute', top: '25px', right: '30px' }}>
+          <button onClick={() => setMostrarModalAdmin(true)} className="btn-flotante" style={{ background: '#111827', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+            <span>⚙️</span> Panel Admin
+          </button>
+        </div>
+
+        <div style={{ marginTop: '20px', marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <img src="/boss_accredible.png" alt="Logo" style={{ width: '120px', height: 'auto', objectFit: 'contain', marginBottom: '15px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '30px', letterSpacing: '-0.5px' }}>Boss Language Center</h1>
+          <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>Selecciona tu perfil docente</p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {profesoresActivos.length === 0 ? (
+            <div style={{ padding: '20px', color: '#6b7280', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed #d1d5db' }}>
+              <p style={{ margin: 0 }}>No hay profesores registrados.</p>
+              <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>Usa el <strong>Panel Admin</strong> arriba a la derecha para agregar uno.</p>
+            </div>
+          ) : (
+            profesoresActivos.map((profesor) => (
+              <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion">
+                <div className="avatar" style={{ backgroundColor: profesor.color }}>{profesor.nombre.charAt(0)}</div>
+                <div className="textos">
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre}</h2>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#5f6368', fontWeight: '400' }}>Language Teacher</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+export default App
