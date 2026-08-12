@@ -89,7 +89,6 @@ function App() {
   const [montoMovimiento, setMontoMovimiento] = useState('')
   const [mesMovimiento, setMesMovimiento] = useState('2026-08')
 
-  // NUEVOS ESTADOS PARA IMPORTACIÓN MASIVA DE EXCEL
   const [textoImportar, setTextoImportar] = useState('')
   const [alumnoImportar, setAlumnoImportar] = useState('')
   const [claseImportar, setClaseImportar] = useState('')
@@ -129,6 +128,21 @@ function App() {
     cargarDatos();
   }, [mensajeExito]); 
 
+  // ==========================================
+  // TRADUCTOR UNIVERSAL DE FECHAS (NUEVO)
+  // Convierte "29/06/2026" a "2026-06-29" para que los filtros y el orden no fallen nunca.
+  // ==========================================
+  const parseFechaUniversal = (fechaStr) => {
+    if(!fechaStr) return '';
+    if(fechaStr.includes('/')) {
+       const parts = fechaStr.split('/');
+       if(parts.length === 3) {
+           return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+       }
+    }
+    return fechaStr; 
+  }
+
   const todosLosAlumnos = Array.from(new Set([
     ...alumnosFirebase.map(a => a.nombre || ''),
     ...clasesFirebase.flatMap(c => c.estudiantes || [])
@@ -151,24 +165,20 @@ function App() {
   const matchFiltroFinanzas = (fechaDato) => {
     if (!fechaDato) return false;
     if (mesFinanzas === 'todo') return true;
-    if (mesFinanzas === '2026') return fechaDato.startsWith('2026');
-    return fechaDato.startsWith(mesFinanzas); 
+    const f = parseFechaUniversal(fechaDato);
+    if (mesFinanzas === '2026') return f.startsWith('2026');
+    return f.startsWith(mesFinanzas); 
   }
 
-  // ==========================================
-  // FUNCION DE IMPORTACION MÁGICA (NUEVO)
-  // ==========================================
   const handleProcesarImportacion = async (e) => {
     e.preventDefault();
     if (!textoImportar || !claseImportar || !profesorImportar || !alumnoImportar) {
-      triggerError('Llena todos los campos obligatorios y pega los datos del Excel.');
-      return;
+      triggerError('Llena todos los campos obligatorios y pega los datos del Excel.'); return;
     }
 
     setProcesandoImportacion(true);
     const filas = textoImportar.trim().split('\n');
-    let nuevosAlumnosRegistrados = 0;
-    let registrosGuardados = 0;
+    let nuevosAlumnosRegistrados = 0; let registrosGuardados = 0;
 
     try {
       const claseRef = clasesFirebase.find(c => c.id === claseImportar);
@@ -177,90 +187,57 @@ function App() {
       const profesorName = profesores.find(p => p.id === profesorImportar)?.nombre || 'Desconocido';
       const nombreAlumno = alumnoImportar.trim();
 
-      // 1. Crear alumno si no existe (Magia Automática)
       let alumnoExiste = alumnosFirebase.some(a => (a.nombre||'').toLowerCase() === nombreAlumno.toLowerCase());
       if (!alumnoExiste) {
         await addDoc(collection(db, "alumnos"), { nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', fechaRegistro: new Date().toISOString(), activo: true });
-        nuevosAlumnosRegistrados++;
-        alumnosFirebase.push({nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', activo: true}); // Optimistic update
+        nuevosAlumnosRegistrados++; alumnosFirebase.push({nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', activo: true}); 
       }
 
-      // 2. Matricular al alumno en la clase si no está
       if (claseRef && !(claseRef.estudiantes || []).includes(nombreAlumno)) {
          const claseDocRef = doc(db, "clases", claseRef.id);
          const nuevosEstudiantes = [...(claseRef.estudiantes || []), nombreAlumno];
          await updateDoc(claseDocRef, { estudiantes: nuevosEstudiantes });
-         claseRef.estudiantes = nuevosEstudiantes; // Optimistic update
+         claseRef.estudiantes = nuevosEstudiantes; 
       }
 
-      // 3. Procesar filas del Excel
       for (let i = 0; i < filas.length; i++) {
         const filaText = filas[i].trim();
         if(!filaText) continue;
         
-        const columnas = filaText.split('\t'); // Las columnas de Excel al pegar se separan con TAB
+        const columnas = filaText.split('\t'); 
         if (columnas.length < 5) continue; 
 
-        // Limpieza de Fecha (Ej: "2024-02-12 00:00:00" -> "2024-02-12")
         let fechaCruda = columnas[0].trim();
         let fecha = fechaCruda.split(' ')[0]; 
+        // Conversión limpia para la BD en la importación
+        if(fecha.includes('/')) {
+            const parts = fecha.split('/');
+            if(parts.length === 3) fecha = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
         
         const getNota = (val) => { const v = (val||'').trim(); return (v === '' || v.toLowerCase() === 'nan') ? '' : v; };
-
-        let oral = getNota(columnas[1]);
-        let grammar = getNota(columnas[2]);
-        let reading = getNota(columnas[3]);
-        let listening = getNota(columnas[4]);
-        let writing = getNota(columnas[5]);
+        let oral = getNota(columnas[1]); let grammar = getNota(columnas[2]); let reading = getNota(columnas[3]); let listening = getNota(columnas[4]); let writing = getNota(columnas[5]);
         
-        // Asistencia automática: Si hay notas, consideramos que asistió. Si están vacías, asumimos falta.
         let asist = 'asistio'; 
-        if(!oral && !grammar && !reading && !listening && !writing) {
-           asist = 'no-asistio';
-        }
+        if(!oral && !grammar && !reading && !listening && !writing) asist = 'no-asistio';
 
         if (fecha && nombreAlumno) {
           const notasFormat = (asist === 'asistio') ? { oral, grammar, reading, listening, writing } : null;
-          
           await addDoc(collection(db, "registrosClases"), {
-            profesor: profesorName,
-            clase: claseRef.titulo,
-            nivel: nivelClase,
-            fecha: fecha,
-            horas: 1.5, // 1.5 horas por defecto en historial
-            tarifa: tarifaClase,
-            asistencia: { [nombreAlumno]: asist },
+            profesor: profesorName, clase: claseRef.titulo, nivel: nivelClase, fecha: fecha,
+            horas: 1.5, tarifa: tarifaClase, asistencia: { [nombreAlumno]: asist },
             notas: notasFormat ? { [nombreAlumno]: notasFormat } : {},
-            observacionesIndividuales: {},
-            observacionGeneral: 'Historial migrado de Excel',
-            fechaRegistro: new Date().toISOString()
+            observacionesIndividuales: {}, observacionGeneral: 'Historial migrado de Excel', fechaRegistro: new Date().toISOString()
           });
           registrosGuardados++;
         }
       }
-
-      setTextoImportar('');
-      setAlumnoImportar('');
-      setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} alumnos creados, ${registrosGuardados} clases históricas guardadas.`);
-      setTimeout(() => setMensajeExito(''), 6000);
-      
-      // Recargar para refrescar la UI
-      const alumnosSnap = await getDocs(collection(db, "alumnos"));
-      setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
-      const regSnap = await getDocs(collection(db, "registrosClases"));
-      setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-    } catch (err) {
-      triggerError('Error al importar. Revisa que el copiado de celdas esté correcto.');
-      console.error(err);
-    } finally {
-      setProcesandoImportacion(false);
-    }
+      setTextoImportar(''); setAlumnoImportar(''); setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} alumnos creados, ${registrosGuardados} clases históricas guardadas.`); setTimeout(() => setMensajeExito(''), 6000);
+      const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
+      const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { triggerError('Error al importar. Revisa el formato de los datos copiados.'); } finally { setProcesandoImportacion(false); }
   }
 
-  // ==========================================
-  // FUNCIONES DE EXPORTACIÓN A PDF Y EXCEL
-  // ==========================================
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
     try {
@@ -280,11 +257,7 @@ function App() {
 
   const generarPDFRecibo = async (pago) => {
     const doc = new jsPDF();
-    const startY = await agregarEncabezadoPDF(doc, "Comprobante de Pago", [
-      `Centro: Boss Language Center SAC`,
-      `RUC: 20603806795`,
-      `Fecha de Emisión: ${new Date().toLocaleDateString()}`
-    ]);
+    const startY = await agregarEncabezadoPDF(doc, "Comprobante de Pago", [`Centro: Boss Language Center SAC`, `RUC: 20603806795`, `Fecha de Emisión: ${new Date().toLocaleDateString()}`]);
     doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text("Detalles de la Operación:", 14, startY + 10);
     doc.setFontSize(12); doc.setTextColor(75, 85, 99);
     doc.text(`Alumno: ${(pago.alumno || 'Alumno').toUpperCase()}`, 14, startY + 20);
@@ -299,9 +272,12 @@ function App() {
     const doc = new jsPDF();
     let registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
     if (mesFiltroAlumno !== 'todo') {
-        registrosAlumno = registrosAlumno.filter(reg => mesFiltroAlumno === '2026' ? reg.fecha?.startsWith('2026') : reg.fecha?.startsWith(mesFiltroAlumno));
+        registrosAlumno = registrosAlumno.filter(reg => {
+          const f = parseFechaUniversal(reg.fecha);
+          return mesFiltroAlumno === '2026' ? f.startsWith('2026') : f.startsWith(mesFiltroAlumno);
+        });
     }
-    registrosAlumno.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+    registrosAlumno.sort((a,b) => new Date(parseFechaUniversal(a.fecha)) - new Date(parseFechaUniversal(b.fecha)));
     
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
     registrosAlumno.forEach(reg => {
@@ -338,18 +314,10 @@ function App() {
   }
 
   const descargarRespaldoNuclear = () => {
-    const backupData = {
-      fechaGeneracion: new Date().toISOString(),
-      centro: "Boss Language Center SAC",
-      baseDeDatos: {
-        profesores: profesores, alumnos: alumnosFirebase, clases: clasesFirebase,
-        registros_academicos: registrosFirebase, pagos_ingresos: pagosFirebase, movimientos_financieros: movimientosExtra
-      }
-    };
+    const backupData = { fechaGeneracion: new Date().toISOString(), centro: "Boss Language Center SAC", baseDeDatos: { profesores: profesores, alumnos: alumnosFirebase, clases: clasesFirebase, registros_academicos: registrosFirebase, pagos_ingresos: pagosFirebase, movimientos_financieros: movimientosExtra }};
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;
-    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     setMensajeExito('¡Backup Nuclear descargado con éxito! 💽✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
@@ -357,7 +325,12 @@ function App() {
     const doc = new jsPDF();
     const nombreMes = mesPlanilla === "2026-08" ? "Agosto 2026" : "Julio 2026";
     const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado?.nombre || 'Docente'}`, `Periodo: ${nombreMes}`, `Centro: Boss Language Center SAC`]);
-    const registrosMes = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado?.nombre && (mesPlanilla === "" || reg.fecha?.startsWith(mesPlanilla)));
+    const registrosMes = registrosFirebase.filter(reg => {
+      if(reg.profesor !== profesorSeleccionado?.nombre) return false;
+      if(mesPlanilla === "") return true;
+      const f = parseFechaUniversal(reg.fecha);
+      return f.startsWith(mesPlanilla);
+    });
     let totalPagar = 0;
     const tableData = registrosMes.map(reg => {
       const monto = (reg.horas || 0) * (reg.tarifa || 0); totalPagar += monto;
@@ -375,7 +348,12 @@ function App() {
     let periodoStr = mesExportar === 'todo' ? 'Historial Completo' : mesExportar;
     const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [`Clase: ${claseSeleccionada?.titulo || 'Grupo'}`, `Nivel Actual: ${claseSeleccionada?.curso || '--'}`, `Profesor a cargo: ${profesorSeleccionado?.nombre || '--'}`, `Periodo: ${periodoStr}`]);
     let mesPrefix = ""; if (mesExportar === "Agosto 2026") mesPrefix = "2026-08"; else if (mesExportar === "Julio 2026") mesPrefix = "2026-07"; else if (mesExportar === "Junio 2026") mesPrefix = "2026-06";
-    const registrosFiltrados = registrosFirebase.filter(reg => reg.clase === claseSeleccionada?.titulo && (mesPrefix === "" || reg.fecha?.startsWith(mesPrefix))).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    const registrosFiltrados = registrosFirebase.filter(reg => {
+      if(reg.clase !== claseSeleccionada?.titulo) return false;
+      if(mesPrefix === "") return true;
+      const f = parseFechaUniversal(reg.fecha);
+      return f.startsWith(mesPrefix);
+    }).sort((a, b) => new Date(parseFechaUniversal(a.fecha)) - new Date(parseFechaUniversal(b.fecha)));
     const tableData = [];
     registrosFiltrados.forEach(reg => {
       const estudiantes = Object.keys(reg.asistencia || {});
@@ -445,19 +423,14 @@ function App() {
          const obs = (reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); 
          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
-         
          const n = reg.notas?.[alum];
          let o='--', g='--', r='--', l='--', w='--', prom='--';
          
          if (estado === 'asistio' || estado === 'reprogramo') {
            if (typeof n === 'object' && n !== null) {
-              o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--';
-              prom = getPromedio(n);
-           } else if (n) {
-              prom = parseFloat(n).toFixed(1);
-           }
+              o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--'; prom = getPromedio(n);
+           } else if (n) { prom = parseFloat(n).toFixed(1); }
          }
-
          csvContent += `${reg.fecha || '--'},${alum},${reg.clase || '--'} (${nivelReal}),${reg.profesor || '--'},${estado},${o},${g},${r},${l},${w},${prom},${obs}\n`;
       });
     });
@@ -476,7 +449,6 @@ function App() {
         if(!statsAlumnos[est]) statsAlumnos[est] = { faltas: 0, asistencias: 0, notasSum: 0, notasCount: 0 };
         if(reg.asistencia[est] === 'no-asistio') statsAlumnos[est].faltas++;
         else if(reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') statsAlumnos[est].asistencias++;
-        
         if (reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') {
           const prom = parseFloat(getPromedio(reg.notas?.[est]));
           if(!isNaN(prom)) { statsAlumnos[est].notasSum += prom; statsAlumnos[est].notasCount++; }
@@ -499,9 +471,9 @@ function App() {
     });
     registrosFirebase.forEach(reg => {
       if (mesFiltroBusqueda !== 'todo') {
-         const mesRegistro = reg.fecha?.substring(0, 7);
-         if (mesRegistro !== mesFiltroBusqueda && mesFiltroBusqueda !== '2026') return;
-         if (mesFiltroBusqueda === '2026' && !reg.fecha?.startsWith('2026')) return;
+         const f = parseFechaUniversal(reg.fecha);
+         if (mesFiltroBusqueda === '2026' && !f.startsWith('2026')) return;
+         if (mesFiltroBusqueda !== '2026' && !f.startsWith(mesFiltroBusqueda)) return;
       }
       const profNombre = reg.profesor;
       if (!profNombre || !statsProfesores[profNombre]) return;
@@ -562,11 +534,12 @@ function App() {
       if (!matchProfesor) return false;
     }
     if (mesFiltroBusqueda !== 'todo') { 
-      if (mesFiltroBusqueda === '2026') return reg.fecha?.substring(0, 4) === '2026';
-      return reg.fecha?.substring(0, 7) === mesFiltroBusqueda; 
+      const f = parseFechaUniversal(reg.fecha);
+      if (mesFiltroBusqueda === '2026') return f.startsWith('2026');
+      return f.startsWith(mesFiltroBusqueda); 
     }
     return true;
-  }).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+  }).sort((a, b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha)));
 
   const misClases = profesorSeleccionado ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) : [];
 
@@ -750,9 +723,6 @@ function App() {
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
-  // ==========================================
-  // ESTILOS GLOBALES
-  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -770,15 +740,12 @@ function App() {
       .btn-flotante:active { transform: translateY(1px); }
       .input-flotante { transition: all 0.2s ease; text-align: left; }
       .input-flotante:focus, .input-flotante:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); border-color: #3b82f6 !important; }
-      @keyframes deslizarAbajo { from { top: -50px; opacity: 0; } to { top: 20px; opacity: 1; } }
       @keyframes aparecerFade { from { opacity: 0; transform: scale(0.95) translate(-50%, -50%); } to { opacity: 1; transform: scale(1) translate(-50%, -50%); } }
       @keyframes vibrar { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
-      
       .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s ease; margin-bottom: 8px; }
       .admin-menu-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
       .admin-menu-btn.active { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
       .admin-menu-btn.inactive { background-color: #ffffff; border: 1px solid #e5e7eb; color: #4b5563; }
-      
       .scroll-casillas::-webkit-scrollbar { width: 6px; }
       .scroll-casillas::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
       .scroll-casillas::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -838,7 +805,12 @@ function App() {
     const registrosAlumnoRaw = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
     const pagosAlumnoRaw = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
 
-    const registrosAlumno = registrosAlumnoRaw.filter(r => mesFiltroAlumno === 'todo' || (mesFiltroAlumno === '2026' ? r.fecha?.startsWith('2026') : r.fecha?.startsWith(mesFiltroAlumno)));
+    const registrosAlumno = registrosAlumnoRaw.filter(r => {
+        if(mesFiltroAlumno === 'todo') return true;
+        const f = parseFechaUniversal(r.fecha);
+        return mesFiltroAlumno === '2026' ? f.startsWith('2026') : f.startsWith(mesFiltroAlumno);
+    });
+    
     const pagosAlumno = pagosAlumnoRaw.filter(p => mesFiltroAlumno === 'todo' || (mesFiltroAlumno === '2026' ? p.mes?.startsWith('2026') : p.mes === mesFiltroAlumno));
 
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
@@ -961,7 +933,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {registrosAlumno.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map((reg, idx) => {
+                    {registrosAlumno.sort((a,b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha))).map((reg, idx) => {
                       const estado = reg.asistencia[alumnoSeleccionado];
                       const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                       const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alumnoSeleccionado]) : '--';
@@ -1083,7 +1055,7 @@ function App() {
           <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
-              {/* MÁQUINA DEL TIEMPO (NUEVO IMPORTADOR MASIVO) */}
+              {/* MÁQUINA DEL TIEMPO (IMPORTADOR) */}
               {adminTab === 'migracion' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -1265,7 +1237,7 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno</h2>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
                       <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
                       <form onSubmit={handleAgregarAlumno} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
@@ -1690,7 +1662,12 @@ function App() {
   if (profesorSeleccionado) {
     let mesPrefixPlanilla = "";
     if (mesPlanilla === "2026-08") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "2026-07") mesPrefixPlanilla = "2026-07";
-    const registrosMesProfesor = registrosFirebase.filter(reg => reg.profesor === profesorSeleccionado.nombre && (mesPrefixPlanilla === "" || reg.fecha?.startsWith(mesPrefixPlanilla)));
+    const registrosMesProfesor = registrosFirebase.filter(reg => {
+      if(reg.profesor !== profesorSeleccionado.nombre) return false;
+      if(mesPrefixPlanilla === "") return true;
+      const f = parseFechaUniversal(reg.fecha);
+      return f.startsWith(mesPrefixPlanilla);
+    });
     const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
 
     let totalNotas = 0; let countNotas = 0;
@@ -1820,7 +1797,7 @@ function App() {
                     {(claseSeleccionada.estudiantes || []).map((estudiante, index) => (
                       <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
-                          <h4 style={{ margin: 0, color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
+                          <h4 style={{ margin: '0', color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'asistio'})} style={obtenerEstiloBoton(estudiante, 'asistio', '#86efac', '#dcfce7', '#166534')}>Asistió</button>
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'no-asistio'})} style={obtenerEstiloBoton(estudiante, 'no-asistio', '#fca5a5', '#fee2e2', '#991b1b')}>No asistió</button>
