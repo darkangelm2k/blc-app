@@ -3,7 +3,6 @@ import { db } from './firebase'
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-// NUEVO: Importación de Gráficos
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts'
 
 function App() {
@@ -25,6 +24,7 @@ function App() {
   const [loginAlumnoNumDoc, setLoginAlumnoNumDoc] = useState('')
   const [errorLoginAlumno, setErrorLoginAlumno] = useState(false)
   const [alumnoSeleccionado, setAlumnoSeleccionado] = useState(null)
+  const [mesFiltroAlumno, setMesFiltroAlumno] = useState('todo')
 
   const [mostrarError, setMostrarError] = useState(false)
   const [mensajeError, setMensajeError] = useState('') 
@@ -69,6 +69,7 @@ function App() {
   const [nuevaClaseHorario, setNuevaClaseHorario] = useState('')
   const [estudiantesSeleccionados, setEstudiantesSeleccionados] = useState([]) 
   const [nuevaClaseProfesorId, setNuevaClaseProfesorId] = useState('')
+  const [busquedaEstudiantesClase, setBusquedaEstudiantesClase] = useState('')
 
   const [terminoBusqueda, setTerminoBusqueda] = useState('')
   const [mesFiltroBusqueda, setMesFiltroBusqueda] = useState('todo')
@@ -147,37 +148,6 @@ function App() {
     return fechaDato.startsWith(mesFinanzas); 
   }
 
-  // ==========================================
-  // RESPALDO NUCLEAR (BACKUP)
-  // ==========================================
-  const descargarRespaldoNuclear = () => {
-    const backupData = {
-      fechaGeneracion: new Date().toISOString(),
-      centro: "Boss Language Center SAC",
-      baseDeDatos: {
-        profesores: profesores,
-        alumnos: alumnosFirebase,
-        clases: clasesFirebase,
-        registros_academicos: registrosFirebase,
-        pagos_ingresos: pagosFirebase,
-        movimientos_financieros: movimientosExtra
-      }
-    };
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setMensajeExito('¡Backup Nuclear descargado con éxito! 💽✅');
-    setTimeout(() => setMensajeExito(''), 4000);
-  }
-
-  // ==========================================
-  // PDF EXPORT FUNCTIONS
-  // ==========================================
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
     try {
@@ -214,7 +184,11 @@ function App() {
 
   const generarPDFReporteAlumnoUnico = async () => {
     const doc = new jsPDF();
-    const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]).sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+    let registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
+    if (mesFiltroAlumno !== 'todo') {
+        registrosAlumno = registrosAlumno.filter(reg => mesFiltroAlumno === '2026' ? reg.fecha?.startsWith('2026') : reg.fecha?.startsWith(mesFiltroAlumno));
+    }
+    registrosAlumno.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
     
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
     registrosAlumno.forEach(reg => {
@@ -228,9 +202,11 @@ function App() {
     });
     const promedioGlobal = notasList.length > 0 ? (notasList.reduce((a,b)=>a+b,0)/notasList.length).toFixed(1) : '--';
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
+    const periodoStr = mesFiltroAlumno === 'todo' ? 'Historial Completo' : mesFiltroAlumno;
 
     const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [
       `Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, 
+      `Periodo Evaluado: ${periodoStr}`,
       `Promedio Global: ${promedioGlobal}`, 
       `Asistencia Total: ${asistenciaPorcentaje}%`,
       `Generado: ${new Date().toLocaleDateString()}`
@@ -246,6 +222,22 @@ function App() {
 
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
     doc.save(`Libreta_${(alumnoSeleccionado || 'Alumno').replace(' ', '_')}.pdf`);
+  }
+
+  const descargarRespaldoNuclear = () => {
+    const backupData = {
+      fechaGeneracion: new Date().toISOString(),
+      centro: "Boss Language Center SAC",
+      baseDeDatos: {
+        profesores: profesores, alumnos: alumnosFirebase, clases: clasesFirebase,
+        registros_academicos: registrosFirebase, pagos_ingresos: pagosFirebase, movimientos_financieros: movimientosExtra
+      }
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;
+    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setMensajeExito('¡Backup Nuclear descargado con éxito! 💽✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
   const generarPDFPlanilla = async () => {
@@ -363,9 +355,6 @@ function App() {
     setMensajeExito('¡Excel exportado correctamente! 📈✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
-  // ==========================================
-  // METRICAS Y DATOS DERIVADOS
-  // ==========================================
   const calcularMetricas = () => {
     const statsAlumnos = {};
     registrosFirebase.forEach(reg => {
@@ -468,9 +457,6 @@ function App() {
 
   const misClases = profesorSeleccionado ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) : [];
 
-  // ==========================================
-  // HANDLERS (BOTONES Y FORMULARIOS)
-  // ==========================================
   const handleEliminarAlumno = async (id) => {
     if(window.confirm('⚠️ ¿Borrar este alumno del directorio de forma permanente?')) {
       await deleteDoc(doc(db, "alumnos", id)); setAlumnosFirebase(alumnosFirebase.filter(a => a.id !== id));
@@ -564,7 +550,7 @@ function App() {
     }
     try {
       await addDoc(collection(db, "clases"), { titulo: nuevaClaseTitulo, curso: nuevaClaseCurso, tarifa: Number(nuevaClaseTarifa), dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: estudiantesSeleccionados, profesorId: nuevaClaseProfesorId, archivada: false });
-      setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setEstudiantesSeleccionados([]); setNuevaClaseProfesorId('');
+      setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setEstudiantesSeleccionados([]); setNuevaClaseProfesorId(''); setBusquedaEstudiantesClase('');
       setMensajeExito('Clase creada con éxito ✅'); setTimeout(() => setMensajeExito(''), 3000);
     } catch (error) { triggerError('Error de conexión'); }
   }
@@ -674,10 +660,13 @@ function App() {
       @keyframes deslizarAbajo { from { top: -50px; opacity: 0; } to { top: 20px; opacity: 1; } }
       @keyframes aparecerFade { from { opacity: 0; transform: scale(0.95) translate(-50%, -50%); } to { opacity: 1; transform: scale(1) translate(-50%, -50%); } }
       @keyframes vibrar { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
-      .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; border-radius: 10px; border: none; cursor: pointer; font-size: 15px; font-weight: 500; text-align: left; transition: all 0.2s ease; }
-      .admin-menu-btn:hover { background-color: #f3f4f6; }
-      .admin-menu-btn.active { background-color: #eff6ff; color: #2563eb; }
-      .admin-menu-btn.inactive { background-color: transparent; color: #4b5563; }
+      
+      /* NUEVOS ESTILOS PARA EL MENU IZQUIERDO ADMIN */
+      .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s ease; margin-bottom: 8px; }
+      .admin-menu-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+      .admin-menu-btn.active { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+      .admin-menu-btn.inactive { background-color: #ffffff; border: 1px solid #e5e7eb; color: #4b5563; }
+      
       .scroll-casillas::-webkit-scrollbar { width: 6px; }
       .scroll-casillas::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
       .scroll-casillas::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -687,9 +676,6 @@ function App() {
     `}</style>
   )
 
-  // ==========================================
-  // VISTA 1: INICIO SPLIT
-  // ==========================================
   if (modoIngreso === 'inicio' && !alumnoSeleccionado && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -708,9 +694,6 @@ function App() {
     )
   }
 
-  // ==========================================
-  // VISTA 2: LOGIN ALUMNO
-  // ==========================================
   if (modoIngreso === 'alumno' && !alumnoSeleccionado) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -739,16 +722,14 @@ function App() {
     )
   }
 
-  // ==========================================
-  // VISTA 3: DASHBOARD ALUMNO (NUEVO RADAR)
-  // ==========================================
   if (alumnoSeleccionado) {
-    const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
-    const pagosAlumno = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
+    const registrosAlumnoRaw = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
+    const pagosAlumnoRaw = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
+
+    const registrosAlumno = registrosAlumnoRaw.filter(r => mesFiltroAlumno === 'todo' || (mesFiltroAlumno === '2026' ? r.fecha?.startsWith('2026') : r.fecha?.startsWith(mesFiltroAlumno)));
+    const pagosAlumno = pagosAlumnoRaw.filter(p => mesFiltroAlumno === 'todo' || (mesFiltroAlumno === '2026' ? p.mes?.startsWith('2026') : p.mes === mesFiltroAlumno));
 
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
-    
-    // Variables para Radar Chart
     let sumas = { oral: 0, grammar: 0, reading: 0, listening: 0, writing: 0 };
     let counts = { oral: 0, grammar: 0, reading: 0, listening: 0, writing: 0 };
 
@@ -771,7 +752,6 @@ function App() {
        } else if (estado === 'no-asistio') { totalFaltas++; }
     });
 
-    // Data Formateada para Radar
     const dataRadar = [
       { skill: '🗣️ Oral', A: counts.oral > 0 ? (sumas.oral/counts.oral).toFixed(1) : 0, fullMark: 20 },
       { skill: '✍️ Grammar', A: counts.grammar > 0 ? (sumas.grammar/counts.grammar).toFixed(1) : 0, fullMark: 20 },
@@ -782,7 +762,8 @@ function App() {
 
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
     const promedioGlobal = notasList.length > 0 ? (notasList.reduce((a,b)=>a+b,0)/notasList.length).toFixed(1) : '--';
-    const mesReferencia = new Date().toISOString().substring(0, 7); 
+    
+    const mesReferencia = mesFiltroAlumno === 'todo' || mesFiltroAlumno === '2026' ? new Date().toISOString().substring(0, 7) : mesFiltroAlumno; 
     const pagoAlDia = pagosFirebase.some(p => p.alumno === alumnoSeleccionado && p.mes === mesReferencia);
 
     return (
@@ -790,7 +771,7 @@ function App() {
         {estilosGlobales}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
-        <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.4s ease' }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.4s ease' }}>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -803,9 +784,19 @@ function App() {
             <button onClick={() => {setAlumnoSeleccionado(null); setModoIngreso('inicio')}} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={generarPDFReporteAlumnoUnico} className="btn-flotante" style={{ backgroundColor: '#2563eb', color: 'white', padding: '12px 24px', borderRadius: '8px', border: 'none', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.2)' }}>
-              📄 Descargar Libreta de Notas
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: '16px 24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', flexWrap: 'wrap', gap: '15px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+               <span style={{ fontWeight: '600', color: '#374151' }}>📅 Periodo Académico:</span>
+               <select value={mesFiltroAlumno} onChange={(e) => setMesFiltroAlumno(e.target.value)} className="input-flotante" style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  <option value="todo">Historial Completo</option>
+                  <option value="2026">Todo el 2026 (Anual)</option>
+                  <option value="2026-08">Agosto 2026</option>
+                  <option value="2026-07">Julio 2026</option>
+                  <option value="2026-06">Junio 2026</option>
+               </select>
+            </div>
+            <button onClick={generarPDFReporteAlumnoUnico} className="btn-flotante" style={{ backgroundColor: '#2563eb', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.2)' }}>
+              📄 Descargar Libreta
             </button>
           </div>
 
@@ -827,11 +818,10 @@ function App() {
             </div>
           </div>
 
-          {/* NUEVO GRAFICO DE RADAR */}
           <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
             <h2 style={{ margin: '0 0 10px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', textAlign: 'center' }}>🕸️ Análisis de Habilidades (Skills)</h2>
             {counts.oral === 0 && counts.reading === 0 ? (
-              <p style={{ color: '#9ca3af', textAlign: 'center', margin: '20px 0' }}>El gráfico aparecerá cuando tengas notas detalladas (Oral, Grammar, etc).</p>
+              <p style={{ color: '#9ca3af', textAlign: 'center', margin: '20px 0' }}>El gráfico aparecerá cuando tengas notas detalladas en este periodo.</p>
             ) : (
               <div style={{ width: '100%', height: '350px', marginTop: '10px' }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -846,11 +836,11 @@ function App() {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '20px' }}>
             <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📚 Mi Historial de Clases</h2>
               <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '400px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f3f4f6', color: '#374151' }}>
                       <th style={{ padding: '12px' }}>Fecha</th>
@@ -865,13 +855,13 @@ function App() {
                       const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alumnoSeleccionado]) : '--';
                       return (
                         <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                          <td style={{ padding: '12px', fontWeight: '500' }}>{reg.fecha}</td>
-                          <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{estado.replace('-', ' ')}</td>
+                          <td style={{ padding: '12px', fontWeight: '500', minWidth: '90px' }}>{reg.fecha}</td>
+                          <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize', minWidth: '90px' }}>{estado.replace('-', ' ')}</td>
                           <td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                         </tr>
                       )
                     })}
-                    {registrosAlumno.length === 0 && <tr><td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#9ca3af' }}>No hay clases registradas.</td></tr>}
+                    {registrosAlumno.length === 0 && <tr><td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#9ca3af' }}>No hay clases registradas en este periodo.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -894,7 +884,7 @@ function App() {
                     </div>
                   </div>
                 ))}
-                {pagosAlumno.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No tienes pagos registrados.</p>}
+                {pagosAlumno.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No tienes pagos registrados en este periodo.</p>}
               </div>
             </div>
           </div>
@@ -903,9 +893,6 @@ function App() {
     )
   }
 
-  // ==========================================
-  // VISTA 4: LOGIN STAFF
-  // ==========================================
   if (modoIngreso === 'staff' && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -935,7 +922,7 @@ function App() {
   }
 
   // ==========================================
-  // VISTA 5: ADMIN DASHBOARD
+  // VISTA 5: ADMIN DASHBOARD (MENÚ MEJORADO Y PESTAÑA BACKUP)
   // ==========================================
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
@@ -944,7 +931,7 @@ function App() {
     return (
       <>
         {estilosGlobales}
-        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos'}</h4></div></div>)}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos por llenar'}</h4></div></div>)}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
         <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#f4f6f8' }}>
@@ -956,13 +943,18 @@ function App() {
               <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#6b7280' }}>Centro de Operaciones</p>
             </div>
             
-            <div style={{ padding: '20px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto' }}>
-              <button className={`admin-menu-btn ${adminTab === 'reportes' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('reportes')}><span style={{ fontSize: '20px' }}>📈</span> Reportes Alumnos</button>
-              <button className={`admin-menu-btn ${adminTab === 'directorio_alumnos' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('directorio_alumnos')}><span style={{ fontSize: '20px' }}>👥</span> Directorio Alumnos</button>
-              <button className={`admin-menu-btn ${adminTab === 'rendimiento' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('rendimiento')}><span style={{ fontSize: '20px' }}>👨‍🏫</span> Rendimiento Docente</button>
-              <button className={`admin-menu-btn ${adminTab === 'finanzas' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('finanzas')}><span style={{ fontSize: '20px' }}>💰</span> Finanzas y Pagos</button>
-              <button className={`admin-menu-btn ${adminTab === 'clases' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('clases')}><span style={{ fontSize: '20px' }}>📚</span> Gestión de Clases</button>
-              <button className={`admin-menu-btn ${adminTab === 'profesores' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('profesores')}><span style={{ fontSize: '20px' }}>👔</span> Directorio Profesores</button>
+            <div style={{ padding: '20px 16px', flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+              <button className={`admin-menu-btn ${adminTab === 'reportes' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('reportes')}><span style={{ fontSize: '18px' }}>📈</span> Reportes Alumnos</button>
+              <button className={`admin-menu-btn ${adminTab === 'directorio_alumnos' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('directorio_alumnos')}><span style={{ fontSize: '18px' }}>👥</span> Directorio Alumnos</button>
+              <button className={`admin-menu-btn ${adminTab === 'rendimiento' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('rendimiento')}><span style={{ fontSize: '18px' }}>👨‍🏫</span> Rendimiento Docente</button>
+              <button className={`admin-menu-btn ${adminTab === 'finanzas' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('finanzas')}><span style={{ fontSize: '18px' }}>💰</span> Finanzas y Pagos</button>
+              <button className={`admin-menu-btn ${adminTab === 'clases' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('clases')}><span style={{ fontSize: '18px' }}>📚</span> Gestión de Clases</button>
+              <button className={`admin-menu-btn ${adminTab === 'profesores' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('profesores')}><span style={{ fontSize: '18px' }}>👔</span> Directorio Profesores</button>
+              
+              {/* NUEVA PESTAÑA DE BACKUP */}
+              <button className={`admin-menu-btn ${adminTab === 'backup' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('backup')} style={{ marginTop: '15px', borderStyle: 'dashed', borderColor: adminTab === 'backup' ? '#fca5a5' : '#cbd5e1' }}>
+                <span style={{ fontSize: '18px' }}>💽</span> Respaldo de Datos
+              </button>
             </div>
             
             <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb' }}>
@@ -975,21 +967,27 @@ function App() {
           <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
-              {/* REPORTES Y BACKUP NUCLEAR */}
-              {adminTab === 'reportes' && (
+              {/* NUEVA VISTA DEDICADA DE BACKUP */}
+              {adminTab === 'backup' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
-                  
-                  {/* NUEVO BOTON: RESPALDO NUCLEAR */}
-                  <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', padding: '20px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
-                    <div>
-                      <h3 style={{ margin: '0 0 5px 0', color: '#be123c', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>💽 Respaldo Nuclear de Datos</h3>
-                      <p style={{ margin: 0, fontSize: '13px', color: '#9f1239' }}>Descarga una copia de seguridad encriptada (JSON) de absolutamente todo el sistema.</p>
-                    </div>
-                    <button onClick={descargarRespaldoNuclear} className="btn-flotante" style={{ backgroundColor: '#e11d48', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
-                      ⬇️ Generar Backup Total
+                  <div style={{ backgroundColor: 'white', padding: '40px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', textAlign: 'center', maxWidth: '600px', margin: '0 auto', width: '100%', borderTop: '5px solid #e11d48' }}>
+                    <span style={{ fontSize: '50px', display: 'block', marginBottom: '15px' }}>💽</span>
+                    <h2 style={{ margin: '0 0 10px 0', fontSize: '24px', color: '#111827' }}>Respaldo Nuclear de Datos</h2>
+                    <p style={{ fontSize: '15px', color: '#4b5563', marginBottom: '30px', lineHeight: '1.6' }}>
+                      Esta herramienta te permite descargar una copia de seguridad encriptada (JSON) de absolutamente todo el sistema: alumnos, profesores, clases, historial de notas y finanzas. 
+                      <br/><br/>
+                      <strong>Guarda este archivo en un lugar seguro.</strong>
+                    </p>
+                    <button onClick={descargarRespaldoNuclear} className="btn-flotante" style={{ backgroundColor: '#e11d48', color: 'white', border: 'none', padding: '16px 32px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '10px', fontSize: '16px', boxShadow: '0 4px 15px rgba(225, 29, 72, 0.3)' }}>
+                      ⬇️ Generar y Descargar Backup Total
                     </button>
                   </div>
+                </div>
+              )}
 
+              {/* REPORTES (Ya sin la caja roja de Backup) */}
+              {adminTab === 'reportes' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                     <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#111827', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 Buscador y Exportación</h2>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
@@ -1083,7 +1081,6 @@ function App() {
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1142,12 +1139,11 @@ function App() {
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - RENDIMIENTO */}
               {adminTab === 'rendimiento' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '15px', marginBottom: '20px' }}>
-                      <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Académico Docente</h2>
+                      <h2 style={{ margin: '0 0 20px', color: '#111827' }}>Dashboard Académico Docente</h2>
                       <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px' }}>
                         <option value="todo">Historial Completo</option>
                         <option value="2026">Todo el 2026 (Anual)</option>
@@ -1179,19 +1175,15 @@ function App() {
                           </div>
                         </div>
                       ))}
-                      {calcularMetricasDocentes().length === 0 && (
-                        <p style={{ color: '#9ca3af', fontSize: '13px', gridColumn: '1 / -1', textAlign: 'center' }}>No hay datos de docentes en el periodo seleccionado.</p>
-                      )}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - FINANZAS */}
               {adminTab === 'finanzas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
+                    <h2 style={{ margin: '0 0 20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
                     <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
                       <option value="todo">Historial Completo</option>
                       <option value="2026">Todo el 2026 (Anual)</option>
@@ -1370,7 +1362,7 @@ function App() {
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - CLASES */}
+              {/* CLASES CON BUSCADOR IN-LINE */}
               {adminTab === 'clases' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -1412,14 +1404,25 @@ function App() {
                       
                       <div>
                         <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Estudiantes (Pre-registrados en el Directorio)</label>
+                        {/* BUSCADOR IN-LINE */}
+                        <input 
+                          type="text" 
+                          placeholder="🔍 Buscar estudiante por nombre o documento..." 
+                          value={busquedaEstudiantesClase} 
+                          onChange={(e) => setBusquedaEstudiantesClase(e.target.value)} 
+                          className="input-flotante" 
+                          style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', marginBottom: '10px', boxSizing: 'border-box', fontSize: '13px' }} 
+                        />
                         <div className="scroll-casillas" style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', padding: '12px', backgroundColor: '#f9fafb' }}>
-                          {alumnosFirebase.filter(al => al.activo !== false).length === 0 ? (
-                            <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>⚠️ No hay alumnos activos registrados en el Directorio.</p>
+                          {alumnosFirebase.filter(al => al.activo !== false && ((al.nombre||'').toLowerCase().includes(busquedaEstudiantesClase.toLowerCase()) || (al.numDoc||'').includes(busquedaEstudiantesClase))).length === 0 ? (
+                            <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>⚠️ No hay alumnos que coincidan con la búsqueda.</p>
                           ) : (
-                            alumnosFirebase.filter(al => al.activo !== false).map(al => (
+                            alumnosFirebase.filter(al => al.activo !== false && ((al.nombre||'').toLowerCase().includes(busquedaEstudiantesClase.toLowerCase()) || (al.numDoc||'').includes(busquedaEstudiantesClase))).map(al => (
                               <label key={al.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', borderBottom: '1px solid #e5e7eb', cursor: 'pointer' }}>
                                 <input type="checkbox" checked={estudiantesSeleccionados.includes(al.nombre)} onChange={(e) => { if(e.target.checked) setEstudiantesSeleccionados([...estudiantesSeleccionados, al.nombre]); else setEstudiantesSeleccionados(estudiantesSeleccionados.filter(n => n !== al.nombre)); }} style={{ cursor: 'pointer', width: '16px', height: '16px' }} />
-                                <span style={{ fontSize: '14px', color: '#374151', textTransform: 'capitalize' }}>{al.nombre}</span>
+                                <span style={{ fontSize: '14px', color: '#374151', textTransform: 'capitalize' }}>
+                                  {al.nombre} <span style={{color: '#9ca3af', fontSize: '12px', marginLeft: '5px'}}>{al.numDoc ? `(${al.numDoc})` : ''}</span>
+                                </span>
                               </label>
                             ))
                           )}
@@ -1453,7 +1456,7 @@ function App() {
                 </div>
               )}
 
-              {/* CONTENIDO ADMIN - PROFESORES */}
+              {/* PROFESORES */}
               {adminTab === 'profesores' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1777,7 +1780,6 @@ function App() {
     )
   }
 
-  // FALLBACK SEGURO
   return null;
 }
 
