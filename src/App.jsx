@@ -3,6 +3,8 @@ import { db } from './firebase'
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+// NUEVO: Importación de Gráficos
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts'
 
 function App() {
   const [modoIngreso, setModoIngreso] = useState('inicio') 
@@ -23,8 +25,6 @@ function App() {
   const [loginAlumnoNumDoc, setLoginAlumnoNumDoc] = useState('')
   const [errorLoginAlumno, setErrorLoginAlumno] = useState(false)
   const [alumnoSeleccionado, setAlumnoSeleccionado] = useState(null)
-  
-  const [mesFiltroAlumno, setMesFiltroAlumno] = useState('todo')
 
   const [mostrarError, setMostrarError] = useState(false)
   const [mensajeError, setMensajeError] = useState('') 
@@ -88,18 +88,9 @@ function App() {
   const [montoMovimiento, setMontoMovimiento] = useState('')
   const [mesMovimiento, setMesMovimiento] = useState('2026-08')
 
-  const [migracionAlumno, setMigracionAlumno] = useState('')
-  const [migracionCrearAlumno, setMigracionCrearAlumno] = useState(false)
-  const [migracionNuevoAlumnoNombre, setMigracionNuevoAlumnoNombre] = useState('')
-  const [migracionNuevoAlumnoNumDoc, setMigracionNuevoAlumnoNumDoc] = useState('')
-  const [migracionClaseId, setMigracionClaseId] = useState('')
-  const [migracionProfesor, setMigracionProfesor] = useState('')
-  const [migracionTipoDato, setMigracionTipoDato] = useState('asistencia')
-  const [migracionTexto, setMigracionTexto] = useState('')
-  const [migracionProcesando, setMigracionProcesando] = useState(false)
-
   const triggerError = (msg) => {
-    setMensajeError(msg); setMostrarError(true);
+    setMensajeError(msg);
+    setMostrarError(true);
     setTimeout(() => { setMostrarError(false); setMensajeError(''); }, 3500);
   }
 
@@ -156,6 +147,37 @@ function App() {
     return fechaDato.startsWith(mesFinanzas); 
   }
 
+  // ==========================================
+  // RESPALDO NUCLEAR (BACKUP)
+  // ==========================================
+  const descargarRespaldoNuclear = () => {
+    const backupData = {
+      fechaGeneracion: new Date().toISOString(),
+      centro: "Boss Language Center SAC",
+      baseDeDatos: {
+        profesores: profesores,
+        alumnos: alumnosFirebase,
+        clases: clasesFirebase,
+        registros_academicos: registrosFirebase,
+        pagos_ingresos: pagosFirebase,
+        movimientos_financieros: movimientosExtra
+      }
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setMensajeExito('¡Backup Nuclear descargado con éxito! 💽✅');
+    setTimeout(() => setMensajeExito(''), 4000);
+  }
+
+  // ==========================================
+  // PDF EXPORT FUNCTIONS
+  // ==========================================
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
     try {
@@ -176,7 +198,9 @@ function App() {
   const generarPDFRecibo = async (pago) => {
     const doc = new jsPDF();
     const startY = await agregarEncabezadoPDF(doc, "Comprobante de Pago", [
-      `Centro: Boss Language Center SAC`, `RUC: 20603806795`, `Fecha de Emisión: ${new Date().toLocaleDateString()}`
+      `Centro: Boss Language Center SAC`,
+      `RUC: 20603806795`,
+      `Fecha de Emisión: ${new Date().toLocaleDateString()}`
     ]);
     doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text("Detalles de la Operación:", 14, startY + 10);
     doc.setFontSize(12); doc.setTextColor(75, 85, 99);
@@ -190,15 +214,10 @@ function App() {
 
   const generarPDFReporteAlumnoUnico = async () => {
     const doc = new jsPDF();
-    let registrosAlumnoPDF = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
-    if (mesFiltroAlumno !== 'todo') {
-       if (mesFiltroAlumno === '2026') { registrosAlumnoPDF = registrosAlumnoPDF.filter(r => r.fecha?.startsWith('2026')); } 
-       else { registrosAlumnoPDF = registrosAlumnoPDF.filter(r => r.fecha?.startsWith(mesFiltroAlumno)); }
-    }
-    registrosAlumnoPDF.sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
-
+    const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]).sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+    
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
-    registrosAlumnoPDF.forEach(reg => {
+    registrosAlumno.forEach(reg => {
        const estado = reg.asistencia[alumnoSeleccionado];
        if(estado === 'asistio' || estado === 'reprogramo') {
            totalAsistencias++;
@@ -209,20 +228,22 @@ function App() {
     });
     const promedioGlobal = notasList.length > 0 ? (notasList.reduce((a,b)=>a+b,0)/notasList.length).toFixed(1) : '--';
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
-    const periodoLabel = mesFiltroAlumno === 'todo' ? 'Historial Completo' : mesFiltroAlumno;
 
     const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [
-      `Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, `Periodo: ${periodoLabel}`,
-      `Promedio Global: ${promedioGlobal}`, `Asistencia Total: ${asistenciaPorcentaje}%`, `Generado: ${new Date().toLocaleDateString()}`
+      `Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, 
+      `Promedio Global: ${promedioGlobal}`, 
+      `Asistencia Total: ${asistenciaPorcentaje}%`,
+      `Generado: ${new Date().toLocaleDateString()}`
     ]);
 
     const tableData = [];
-    registrosAlumnoPDF.forEach(reg => {
+    registrosAlumno.forEach(reg => {
         const estado = reg.asistencia[alumnoSeleccionado];
         const observacion = reg.observacionesIndividuales?.[alumnoSeleccionado] || reg.observacionGeneral || '--';
         const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alumnoSeleccionado]) : '--';
         tableData.push([reg.fecha || '--', reg.clase || '--', (estado || '--').replace('-', ' '), notaCol, observacion]);
     });
+
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
     doc.save(`Libreta_${(alumnoSeleccionado || 'Alumno').replace(' ', '_')}.pdf`);
   }
@@ -327,8 +348,11 @@ function App() {
            if (typeof n === 'object' && n !== null) {
               o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--';
               prom = getPromedio(n);
-           } else if (n) { prom = parseFloat(n).toFixed(1); }
+           } else if (n) {
+              prom = parseFloat(n).toFixed(1);
+           }
          }
+
          csvContent += `${reg.fecha || '--'},${alum},${reg.clase || '--'} (${nivelReal}),${reg.profesor || '--'},${estado},${o},${g},${r},${l},${w},${prom},${obs}\n`;
       });
     });
@@ -339,6 +363,9 @@ function App() {
     setMensajeExito('¡Excel exportado correctamente! 📈✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
+  // ==========================================
+  // METRICAS Y DATOS DERIVADOS
+  // ==========================================
   const calcularMetricas = () => {
     const statsAlumnos = {};
     registrosFirebase.forEach(reg => {
@@ -441,6 +468,9 @@ function App() {
 
   const misClases = profesorSeleccionado ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) : [];
 
+  // ==========================================
+  // HANDLERS (BOTONES Y FORMULARIOS)
+  // ==========================================
   const handleEliminarAlumno = async (id) => {
     if(window.confirm('⚠️ ¿Borrar este alumno del directorio de forma permanente?')) {
       await deleteDoc(doc(db, "alumnos", id)); setAlumnosFirebase(alumnosFirebase.filter(a => a.id !== id));
@@ -567,12 +597,11 @@ function App() {
   }
 
   const handleLoginGlobal = (e) => {
-    if (e && e.preventDefault) e.preventDefault(); 
-    if (usuarioGlobal === 'bosslanguagecenter' && claveGlobal === 'cambiandovidas') { setAccesoGlobal(true); setErrorLoginGlobal(false); } else { setErrorLoginGlobal(true); setTimeout(() => setErrorLoginGlobal(false), 3000); }
+    e.preventDefault(); if (usuarioGlobal === 'bosslanguagecenter' && claveGlobal === 'cambiandovidas') { setAccesoGlobal(true); setErrorLoginGlobal(false); } else { setErrorLoginGlobal(true); setTimeout(() => setErrorLoginGlobal(false), 3000); }
   }
 
   const handleLoginProfesor = (e) => {
-    if (e && e.preventDefault) e.preventDefault(); 
+    e.preventDefault(); 
     const nombreProf = profesorAAutenticar?.nombre || '';
     const partesNombre = nombreProf.split(' '); 
     const iniciales = ((partesNombre[0]?.charAt(0) || '') + (partesNombre[1]?.charAt(0) || '')).toUpperCase(); 
@@ -582,16 +611,15 @@ function App() {
   }
 
   const handleLoginAdmin = (e) => {
-    if (e && e.preventDefault) e.preventDefault(); 
-    if(claveAdminInput === 'bossadmin2026') { setVistaAdmin(true); setMostrarModalAdmin(false); setClaveAdminInput(''); setErrorAdminPin(false); } else { setErrorAdminPin(true); setTimeout(() => setErrorAdminPin(false), 3000); }
+    e.preventDefault(); if(claveAdminInput === 'bossadmin2026') { setVistaAdmin(true); setMostrarModalAdmin(false); setClaveAdminInput(''); setErrorAdminPin(false); } else { setErrorAdminPin(true); setTimeout(() => setErrorAdminPin(false), 3000); }
   }
 
   const handleLoginAlumno = (e) => {
-    if (e && e.preventDefault) e.preventDefault(); 
+    e.preventDefault();
     const alumnoEncontrado = alumnosFirebase.find(a => a.tipoDoc === loginAlumnoTipoDoc && a.numDoc === loginAlumnoNumDoc);
     if(alumnoEncontrado) {
       if (alumnoEncontrado.activo === false) { triggerError("Tu usuario ha sido dado de baja. Comunícate con administración."); return; }
-      setAlumnoSeleccionado(alumnoEncontrado.nombre); setModoIngreso('inicio'); setLoginAlumnoNumDoc(''); setErrorLoginAlumno(false); setMesFiltroAlumno('todo'); 
+      setAlumnoSeleccionado(alumnoEncontrado.nombre); setModoIngreso('inicio'); setLoginAlumnoNumDoc(''); setErrorLoginAlumno(false);
     } else { setErrorLoginAlumno(true); setTimeout(() => setErrorLoginAlumno(false), 3000); }
   }
 
@@ -618,98 +646,14 @@ function App() {
     } else { triggerError('Faltan datos por llenar (Fecha, horas o notas).'); }
   }
 
-  const handleCrearAlumnoMigracion = async () => {
-    if(!migracionNuevoAlumnoNombre || !migracionNuevoAlumnoNumDoc) { triggerError('Llenar nombre y documento'); return; }
-    if(alumnosFirebase.some(a => a.numDoc === migracionNuevoAlumnoNumDoc)) { triggerError('Documento duplicado'); return; }
-    try {
-        await addDoc(collection(db, "alumnos"), { nombre: migracionNuevoAlumnoNombre, tipoDoc: 'DNI', numDoc: migracionNuevoAlumnoNumDoc, fechaRegistro: new Date().toISOString(), activo: true });
-        setMigracionAlumno(migracionNuevoAlumnoNombre); setMigracionCrearAlumno(false); setMigracionNuevoAlumnoNombre(''); setMigracionNuevoAlumnoNumDoc('');
-        setMensajeExito('Alumno creado. Seleccionado automáticamente.'); setTimeout(() => setMensajeExito(''), 3000);
-    } catch(e) { triggerError('Error al crear alumno'); }
-  }
-
-  const handleProcesarMigracion = async () => {
-    if(!migracionAlumno || !migracionClaseId || !migracionTexto.trim()) {
-        triggerError('Selecciona alumno, clase y pega los datos.'); return;
-    }
-    setMigracionProcesando(true);
-    const claseObj = clasesFirebase.find(c => c.id === migracionClaseId);
-    const claseTitulo = claseObj.titulo;
-    const claseNivel = claseObj.curso;
-    const profeDefault = migracionProfesor || 'Docente Migrado';
-    const rows = migracionTexto.split('\n').filter(r => r.trim() !== '');
-    let countSuccess = 0;
-
-    try {
-        for(let row of rows) {
-            let cols = row.split('\t');
-            let rawDate = cols[0]?.trim() || '';
-            if(!/\d/.test(rawDate) || (!rawDate.includes('-') && !rawDate.includes('/'))) continue;
-            
-            let fecha = rawDate.split(' ')[0]; 
-            if(fecha.includes('/')) {
-                const parts = fecha.split('/');
-                if(parts[2] && parts[2].length === 4) fecha = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-            }
-            
-            if(migracionTipoDato === 'asistencia') {
-                let hours = Number(cols[2]) || 0;
-                let tarifa = Number(cols[3]) || 0;
-                let attStr = (cols[5] || '').toLowerCase();
-                let status = 'no-asistio';
-                if(attStr.includes('present') || attStr.includes('presente')) status = 'asistio';
-                if(attStr.includes('cancel') || attStr.includes('reprogram')) status = 'reprogramo';
-                let teacher = (cols[6] || '').trim() || profeDefault;
-                let obs = (cols[7] || '').trim();
-
-                await addDoc(collection(db, "registrosClases"), {
-                    profesor: teacher, clase: claseTitulo, nivel: claseNivel, fecha: fecha, horas: hours, tarifa: tarifa,
-                    asistencia: { [migracionAlumno]: status }, notas: {}, observacionesIndividuales: {}, observacionGeneral: obs, fechaRegistro: new Date().toISOString()
-                });
-                countSuccess++;
-            } else {
-                let oral = (cols[1] || '').trim(); if(oral === '-' || oral.toLowerCase()==='nan') oral = '';
-                let grammar = (cols[2] || '').trim(); if(grammar === '-' || grammar.toLowerCase()==='nan') grammar = '';
-                let reading = (cols[3] || '').trim(); if(reading === '-' || reading.toLowerCase()==='nan') reading = '';
-                let listening = (cols[4] || '').trim(); if(listening === '-' || listening.toLowerCase()==='nan') listening = '';
-                let writing = (cols[5] || '').trim(); if(writing === '-' || writing.toLowerCase()==='nan') writing = '';
-                
-                let notasObj = {};
-                if(oral) notasObj.oral = oral;
-                if(grammar) notasObj.grammar = grammar;
-                if(reading) notasObj.reading = reading;
-                if(listening) notasObj.listening = listening;
-                if(writing) notasObj.writing = writing;
-
-                let snapshot = await getDocs(collection(db, "registrosClases"));
-                let existingDoc = snapshot.docs.find(d => {
-                    const data = d.data(); return data.fecha === fecha && data.clase === claseTitulo && data.asistencia && data.asistencia[migracionAlumno];
-                });
-
-                if(existingDoc) {
-                    let docData = existingDoc.data();
-                    let n = docData.notas || {}; n[migracionAlumno] = notasObj;
-                    await updateDoc(doc(db, "registrosClases", existingDoc.id), { notas: n });
-                } else {
-                    await addDoc(collection(db, "registrosClases"), {
-                        profesor: profeDefault, clase: claseTitulo, nivel: claseNivel, fecha: fecha, horas: 0, tarifa: 0,
-                        asistencia: { [migracionAlumno]: 'asistio' }, notas: { [migracionAlumno]: notasObj },
-                        observacionesIndividuales: {}, observacionGeneral: 'Notas migradas directamente.', fechaRegistro: new Date().toISOString()
-                    });
-                }
-                countSuccess++;
-            }
-        }
-        setMigracionTexto(''); setMensajeExito(`¡Migración completada! ${countSuccess} registros guardados.`); setTimeout(() => setMensajeExito(''), 5000);
-    } catch(err) { triggerError('Error al procesar las filas. Verifica el formato pegado.'); }
-    setMigracionProcesando(false);
-  }
-
   const obtenerEstiloBoton = (estudiante, estado, colorBorde, colorFondo, colorTexto) => {
     const estadoActual = asistencia[estudiante]; const algunSeleccionado = estadoActual !== undefined; const estaSeleccionado = estadoActual === estado; const mostrarColor = !algunSeleccionado || estaSeleccionado;
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
+  // ==========================================
+  // ESTILOS GLOBALES
+  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -743,6 +687,9 @@ function App() {
     `}</style>
   )
 
+  // ==========================================
+  // VISTA 1: INICIO SPLIT
+  // ==========================================
   if (modoIngreso === 'inicio' && !alumnoSeleccionado && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -761,6 +708,9 @@ function App() {
     )
   }
 
+  // ==========================================
+  // VISTA 2: LOGIN ALUMNO
+  // ==========================================
   if (modoIngreso === 'alumno' && !alumnoSeleccionado) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -779,7 +729,7 @@ function App() {
                 <option value="RUC">RUC</option>
                 <option value="Otro">Otro</option>
               </select>
-              <input type="text" placeholder="N° de Documento" value={loginAlumnoNumDoc} onChange={(e) => setLoginAlumnoNumDoc(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleLoginAlumno(e); } }} className="input-flotante" style={{ width: '65%', padding: '14px', borderRadius: '8px', border: errorLoginAlumno ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', textAlign: 'center', fontSize: '15px', letterSpacing: '1px' }} autoFocus />
+              <input type="text" placeholder="N° de Documento" value={loginAlumnoNumDoc} onChange={(e) => setLoginAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '65%', padding: '14px', borderRadius: '8px', border: errorLoginAlumno ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', textAlign: 'center', fontSize: '15px', letterSpacing: '1px' }} autoFocus />
             </div>
             {errorLoginAlumno && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0' }}>Documento no encontrado o inactivo.</p>}
             <button type="submit" className="login-btn" style={{ backgroundColor: '#059669' }}>Acceder a mis Notas</button>
@@ -789,36 +739,50 @@ function App() {
     )
   }
 
+  // ==========================================
+  // VISTA 3: DASHBOARD ALUMNO (NUEVO RADAR)
+  // ==========================================
   if (alumnoSeleccionado) {
-    const registrosAlumnoFiltrados = registrosFirebase.filter(reg => {
-      if(!reg.asistencia || !reg.asistencia[alumnoSeleccionado]) return false;
-      if(mesFiltroAlumno === 'todo') return true;
-      if(mesFiltroAlumno === '2026') return reg.fecha?.startsWith('2026');
-      return reg.fecha?.startsWith(mesFiltroAlumno);
-    });
-
-    const pagosAlumnoFiltrados = pagosFirebase.filter(p => {
-      if (p.alumno !== alumnoSeleccionado) return false;
-      if (mesFiltroAlumno === 'todo') return true;
-      if (mesFiltroAlumno === '2026') return p.mes?.startsWith('2026');
-      return p.mes === mesFiltroAlumno;
-    }).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
+    const registrosAlumno = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
+    const pagosAlumno = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
 
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
-    registrosAlumnoFiltrados.forEach(reg => {
+    
+    // Variables para Radar Chart
+    let sumas = { oral: 0, grammar: 0, reading: 0, listening: 0, writing: 0 };
+    let counts = { oral: 0, grammar: 0, reading: 0, listening: 0, writing: 0 };
+
+    registrosAlumno.forEach(reg => {
        const estado = reg.asistencia[alumnoSeleccionado];
        if(estado === 'asistio' || estado === 'reprogramo') {
            totalAsistencias++;
-           const nota = reg.notas && reg.notas[alumnoSeleccionado];
-           const val = typeof nota === 'object' ? getPromedio(nota) : parseFloat(nota);
+           const notaObj = reg.notas && reg.notas[alumnoSeleccionado];
+           
+           if(typeof notaObj === 'object' && notaObj !== null) {
+              if(notaObj.oral) { sumas.oral += Number(notaObj.oral); counts.oral++; }
+              if(notaObj.grammar) { sumas.grammar += Number(notaObj.grammar); counts.grammar++; }
+              if(notaObj.reading) { sumas.reading += Number(notaObj.reading); counts.reading++; }
+              if(notaObj.listening) { sumas.listening += Number(notaObj.listening); counts.listening++; }
+              if(notaObj.writing) { sumas.writing += Number(notaObj.writing); counts.writing++; }
+           }
+           
+           const val = typeof notaObj === 'object' ? getPromedio(notaObj) : parseFloat(notaObj);
            if(!isNaN(val)) notasList.push(parseFloat(val));
        } else if (estado === 'no-asistio') { totalFaltas++; }
     });
 
+    // Data Formateada para Radar
+    const dataRadar = [
+      { skill: '🗣️ Oral', A: counts.oral > 0 ? (sumas.oral/counts.oral).toFixed(1) : 0, fullMark: 20 },
+      { skill: '✍️ Grammar', A: counts.grammar > 0 ? (sumas.grammar/counts.grammar).toFixed(1) : 0, fullMark: 20 },
+      { skill: '📖 Reading', A: counts.reading > 0 ? (sumas.reading/counts.reading).toFixed(1) : 0, fullMark: 20 },
+      { skill: '🎧 Listening', A: counts.listening > 0 ? (sumas.listening/counts.listening).toFixed(1) : 0, fullMark: 20 },
+      { skill: '📝 Writing', A: counts.writing > 0 ? (sumas.writing/counts.writing).toFixed(1) : 0, fullMark: 20 },
+    ];
+
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
     const promedioGlobal = notasList.length > 0 ? (notasList.reduce((a,b)=>a+b,0)/notasList.length).toFixed(1) : '--';
-    let mesReferencia = new Date().toISOString().substring(0, 7); 
-    if(mesFiltroAlumno !== 'todo' && mesFiltroAlumno !== '2026') { mesReferencia = mesFiltroAlumno; }
+    const mesReferencia = new Date().toISOString().substring(0, 7); 
     const pagoAlDia = pagosFirebase.some(p => p.alumno === alumnoSeleccionado && p.mes === mesReferencia);
 
     return (
@@ -827,6 +791,7 @@ function App() {
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
         <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.4s ease' }}>
+          
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '50px' }} />
@@ -835,16 +800,7 @@ function App() {
                 <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>Portal Académico y Financiero</p>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <select value={mesFiltroAlumno} onChange={(e) => setMesFiltroAlumno(e.target.value)} className="input-flotante" style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', fontWeight: 'bold', color: '#374151', cursor: 'pointer' }}>
-                <option value="todo">📚 Historial Completo</option>
-                <option value="2026">📅 Todo el 2026</option>
-                <option value="2026-08">Agosto 2026</option>
-                <option value="2026-07">Julio 2026</option>
-                <option value="2026-06">Junio 2026</option>
-              </select>
-              <button onClick={() => {setAlumnoSeleccionado(null); setModoIngreso('inicio')}} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
-            </div>
+            <button onClick={() => {setAlumnoSeleccionado(null); setModoIngreso('inicio')}} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>Cerrar Sesión</button>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -871,10 +827,29 @@ function App() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', alignItems: 'start' }}>
+          {/* NUEVO GRAFICO DE RADAR */}
+          <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+            <h2 style={{ margin: '0 0 10px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', textAlign: 'center' }}>🕸️ Análisis de Habilidades (Skills)</h2>
+            {counts.oral === 0 && counts.reading === 0 ? (
+              <p style={{ color: '#9ca3af', textAlign: 'center', margin: '20px 0' }}>El gráfico aparecerá cuando tengas notas detalladas (Oral, Grammar, etc).</p>
+            ) : (
+              <div style={{ width: '100%', height: '350px', marginTop: '10px' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart cx="50%" cy="50%" outerRadius="80%" data={dataRadar}>
+                    <PolarGrid stroke="#e5e7eb" />
+                    <PolarAngleAxis dataKey="skill" tick={{ fill: '#374151', fontSize: 13, fontWeight: 'bold' }} />
+                    <PolarRadiusAxis angle={30} domain={[0, 20]} tick={{ fontSize: 10, fill: '#9ca3af' }} />
+                    <Radar name="Mi Promedio" dataKey="A" stroke="#2563eb" strokeWidth={2} fill="#3b82f6" fillOpacity={0.5} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
             <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📚 Mi Historial de Clases</h2>
-              <div style={{ overflowX: 'auto' }}>
+              <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '400px' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f3f4f6', color: '#374151' }}>
@@ -884,7 +859,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {registrosAlumnoFiltrados.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map((reg, idx) => {
+                    {registrosAlumno.sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).map((reg, idx) => {
                       const estado = reg.asistencia[alumnoSeleccionado];
                       const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                       const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alumnoSeleccionado]) : '--';
@@ -896,7 +871,7 @@ function App() {
                         </tr>
                       )
                     })}
-                    {registrosAlumnoFiltrados.length === 0 && <tr><td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#9ca3af' }}>No hay clases registradas en este periodo.</td></tr>}
+                    {registrosAlumno.length === 0 && <tr><td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#9ca3af' }}>No hay clases registradas.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -904,8 +879,8 @@ function App() {
 
             <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
               <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>💰 Mis Pagos y Boletas</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {pagosAlumnoFiltrados.map(pago => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
+                {pagosAlumno.map(pago => (
                   <div key={pago.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>Mes: {pago.mes}</span>
@@ -919,7 +894,7 @@ function App() {
                     </div>
                   </div>
                 ))}
-                {pagosAlumnoFiltrados.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No tienes pagos registrados en este periodo.</p>}
+                {pagosAlumno.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No tienes pagos registrados.</p>}
               </div>
             </div>
           </div>
@@ -928,6 +903,9 @@ function App() {
     )
   }
 
+  // ==========================================
+  // VISTA 4: LOGIN STAFF
+  // ==========================================
   if (modoIngreso === 'staff' && !accesoGlobal) {
     return (
       <div className="login-container" style={{ flexDirection: 'column' }}>
@@ -945,7 +923,7 @@ function App() {
               <span style={{ color: '#9ca3af', fontSize: '18px' }}>👤</span>
             </div>
             <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
-              <input type="password" placeholder="••••••••" className="login-input" value={claveGlobal} onChange={(e) => setClaveGlobal(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleLoginGlobal(e); } }} />
+              <input type="password" placeholder="••••••••" className="login-input" value={claveGlobal} onChange={(e) => setClaveGlobal(e.target.value)} />
               <span style={{ color: '#9ca3af', fontSize: '18px' }}>🔑</span>
             </div>
             {errorLoginGlobal && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0', textAlign: 'left' }}>Credenciales incorrectas.</p>}
@@ -956,7 +934,9 @@ function App() {
     )
   }
 
+  // ==========================================
   // VISTA 5: ADMIN DASHBOARD
+  // ==========================================
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
     const finanzas = calcularFinanzas();
@@ -983,7 +963,6 @@ function App() {
               <button className={`admin-menu-btn ${adminTab === 'finanzas' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('finanzas')}><span style={{ fontSize: '20px' }}>💰</span> Finanzas y Pagos</button>
               <button className={`admin-menu-btn ${adminTab === 'clases' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('clases')}><span style={{ fontSize: '20px' }}>📚</span> Gestión de Clases</button>
               <button className={`admin-menu-btn ${adminTab === 'profesores' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('profesores')}><span style={{ fontSize: '20px' }}>👔</span> Directorio Profesores</button>
-              <button className={`admin-menu-btn ${adminTab === 'migracion' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('migracion')}><span style={{ fontSize: '20px' }}>📥</span> Migración Excel</button>
             </div>
             
             <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb' }}>
@@ -996,9 +975,21 @@ function App() {
           <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
-              {/* REPORTES */}
+              {/* REPORTES Y BACKUP NUCLEAR */}
               {adminTab === 'reportes' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
+                  
+                  {/* NUEVO BOTON: RESPALDO NUCLEAR */}
+                  <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', padding: '20px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+                    <div>
+                      <h3 style={{ margin: '0 0 5px 0', color: '#be123c', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>💽 Respaldo Nuclear de Datos</h3>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#9f1239' }}>Descarga una copia de seguridad encriptada (JSON) de absolutamente todo el sistema.</p>
+                    </div>
+                    <button onClick={descargarRespaldoNuclear} className="btn-flotante" style={{ backgroundColor: '#e11d48', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                      ⬇️ Generar Backup Total
+                    </button>
+                  </div>
+
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                     <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#111827', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 Buscador y Exportación</h2>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
@@ -1092,88 +1083,7 @@ function App() {
                 </div>
               )}
 
-              {/* MIGRACION EXCEL (LA CAJA MAGICA) */}
-              {adminTab === 'migracion' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
-                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                    <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#111827', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📥 Migración Masiva desde Excel</h2>
-                    <p style={{ fontSize: '14px', color: '#4b5563', marginBottom: '20px' }}>
-                      Pega directamente las filas de tus Excel antiguos. El sistema los convertirá en historial oficial.
-                    </p>
-
-                    <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                      <h3 style={{ margin: '0 0 10px 0', fontSize: '15px', color: '#374151' }}>1. Selecciona o Crea el Alumno</h3>
-                      {migracionCrearAlumno ? (
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                          <div style={{ flex: 1, minWidth: '150px' }}>
-                            <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>Nombre Completo</label>
-                            <input type="text" value={migracionNuevoAlumnoNombre} onChange={e=>setMigracionNuevoAlumnoNombre(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', boxSizing: 'border-box' }} />
-                          </div>
-                          <div style={{ flex: 1, minWidth: '150px' }}>
-                            <label style={{ fontSize: '12px', color: '#6b7280', display: 'block', marginBottom: '4px' }}>DNI/Doc (Puedes poner "PENDIENTE")</label>
-                            <input type="text" value={migracionNuevoAlumnoNumDoc} onChange={e=>setMigracionNuevoAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', boxSizing: 'border-box' }} />
-                          </div>
-                          <button onClick={handleCrearAlumnoMigracion} className="btn-flotante" style={{ padding: '10px 15px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Guardar</button>
-                          <button onClick={()=>setMigracionCrearAlumno(false)} className="btn-flotante" style={{ padding: '10px 15px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Cancelar</button>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                          <select value={migracionAlumno} onChange={e=>setMigracionAlumno(e.target.value)} className="input-flotante" style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db' }}>
-                            <option value="">-- Buscar Alumno en Directorio --</option>
-                            {alumnosFirebase.map(a => <option key={a.id} value={a.nombre}>{a.nombre} ({a.numDoc})</option>)}
-                          </select>
-                          <button onClick={()=>setMigracionCrearAlumno(true)} className="btn-flotante" style={{ padding: '10px 15px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>➕ Nuevo Alumno</button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, padding: '15px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', minWidth: '250px' }}>
-                        <h3 style={{ margin: '0 0 10px 0', fontSize: '15px', color: '#374151' }}>2. Selecciona la Clase</h3>
-                        <select value={migracionClaseId} onChange={e=>setMigracionClaseId(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', boxSizing: 'border-box' }}>
-                          <option value="">-- Seleccionar Clase Existente --</option>
-                          {clasesFirebase.map(c => <option key={c.id} value={c.id}>{c.titulo} ({c.curso})</option>)}
-                        </select>
-                      </div>
-                      <div style={{ flex: 1, padding: '15px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', minWidth: '250px' }}>
-                        <h3 style={{ margin: '0 0 10px 0', fontSize: '15px', color: '#374151' }}>3. Profesor (Opcional)</h3>
-                        <select value={migracionProfesor} onChange={e=>setMigracionProfesor(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', boxSizing: 'border-box' }}>
-                          <option value="">-- Asignar a un profesor --</option>
-                          {profesores.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                      <h3 style={{ margin: '0 0 10px 0', fontSize: '15px', color: '#374151' }}>4. ¿Qué datos vas a pegar?</h3>
-                      <div style={{ display: 'flex', gap: '20px', marginBottom: '15px', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', backgroundColor: 'white', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', flex: 1 }}>
-                          <input type="radio" name="tipoMigracion" checked={migracionTipoDato === 'asistencia'} onChange={()=>setMigracionTipoDato('asistencia')} />
-                          <div><strong>(A) Asistencias:</strong><br/><span style={{fontSize: '11px', color: '#6b7280'}}>Día | Horario | Horas | Tarifa | Total | Asistencia | Profesor | Observ.</span></div>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', backgroundColor: 'white', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', flex: 1 }}>
-                          <input type="radio" name="tipoMigracion" checked={migracionTipoDato === 'notas'} onChange={()=>setMigracionTipoDato('notas')} />
-                          <div><strong>Progress Report (Notas):</strong><br/><span style={{fontSize: '11px', color: '#6b7280'}}>Fecha | Oral | Grammar | Reading | Listening | Writing | Promedio</span></div>
-                        </label>
-                      </div>
-
-                      <textarea 
-                        placeholder="Haz clic aquí y presiona Ctrl+V para pegar las filas copiadas desde tu Excel..." 
-                        value={migracionTexto} 
-                        onChange={e=>setMigracionTexto(e.target.value)}
-                        className="input-flotante"
-                        style={{ width: '100%', height: '150px', padding: '15px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box', fontFamily: 'monospace', whiteSpace: 'pre', overflowWrap: 'normal', overflowX: 'auto' }}
-                      ></textarea>
-                    </div>
-
-                    <button onClick={handleProcesarMigracion} disabled={migracionProcesando} className="btn-flotante" style={{ width: '100%', padding: '16px', backgroundColor: migracionProcesando ? '#9ca3af' : '#111827', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '16px', cursor: migracionProcesando ? 'not-allowed' : 'pointer' }}>
-                      {migracionProcesando ? '⏳ Procesando e inyectando datos...' : '🚀 Procesar y Guardar Historial'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* DIRECTORIO ALUMNOS */}
+              {/* CONTENIDO ADMIN - DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1205,12 +1115,12 @@ function App() {
                       </form>
                     </div>
 
-                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '15px' }}>
                         <h2 style={{ margin: 0, fontSize: '20px', color: '#374151' }}>👥 Alumnos en Directorio</h2>
                       </div>
                       <input type="text" placeholder="🔍 Buscar por nombre o número de documento..." value={busquedaDirectorio} onChange={(e) => setBusquedaDirectorio(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', marginBottom: '15px', boxSizing: 'border-box' }} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
                         {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
                           <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1232,10 +1142,322 @@ function App() {
                 </div>
               )}
 
-              {/* PROFESORES */}
+              {/* CONTENIDO ADMIN - RENDIMIENTO */}
+              {adminTab === 'rendimiento' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
+                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '15px', marginBottom: '20px' }}>
+                      <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Académico Docente</h2>
+                      <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px' }}>
+                        <option value="todo">Historial Completo</option>
+                        <option value="2026">Todo el 2026 (Anual)</option>
+                        <option value="2026-08">Agosto 2026</option>
+                        <option value="2026-07">Julio 2026</option>
+                        <option value="2026-06">Junio 2026</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                      {calcularMetricasDocentes().map((metrica, idx) => (
+                        <div key={idx} style={{ backgroundColor: '#f9fafb', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div className="avatar" style={{ backgroundColor: metrica.color, width: '36px', height: '36px', fontSize: '14px' }}>{(metrica.nombre || '?').charAt(0)}</div>
+                            <span style={{ fontSize: '15px', fontWeight: '600', color: '#111827' }}>{metrica.nombre || 'Docente'}</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div style={{ backgroundColor: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                              <div style={{ fontSize: '20px', fontWeight: '700', color: '#2563eb' }}>{metrica.horasTotales}<span style={{ fontSize:'12px', color:'#6b7280', fontWeight:'normal'}}>h</span></div>
+                              <div style={{ fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', marginTop: '2px' }}>⏱️ Carga Horaria</div>
+                            </div>
+                            <div style={{ backgroundColor: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                              <div style={{ fontSize: '20px', fontWeight: '700', color: metrica.engagement >= 80 ? '#10b981' : (metrica.engagement >= 60 ? '#f59e0b' : '#ef4444') }}>{metrica.engagement}%</div>
+                              <div style={{ fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', marginTop: '2px' }}>🧲 Asistencia</div>
+                            </div>
+                            <div style={{ backgroundColor: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', textAlign: 'center', gridColumn: '1 / -1' }}>
+                              <div style={{ fontSize: '18px', fontWeight: '700', color: '#8b5cf6' }}>{metrica.promedioNotas}</div>
+                              <div style={{ fontSize: '11px', color: '#6b7280', textTransform: 'uppercase', marginTop: '2px' }}>⚖️ Promedio Notas Otorgadas</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {calcularMetricasDocentes().length === 0 && (
+                        <p style={{ color: '#9ca3af', fontSize: '13px', gridColumn: '1 / -1', textAlign: 'center' }}>No hay datos de docentes en el periodo seleccionado.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* CONTENIDO ADMIN - FINANZAS */}
+              {adminTab === 'finanzas' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2 style={{ margin: 0, fontSize: '20px', color: '#111827' }}>Dashboard Financiero e Ingresos</h2>
+                    <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
+                      <option value="todo">Historial Completo</option>
+                      <option value="2026">Todo el 2026 (Anual)</option>
+                      <option value="2026-08">Agosto 2026</option>
+                      <option value="2026-07">Julio 2026</option>
+                      <option value="2026-06">Junio 2026</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px' }}>
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #10b981' }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Ingresos Totales</p>
+                      <h3 style={{ margin: 0, fontSize: '24px', color: '#111827' }}>S/. {finanzas.totalIngresos.toFixed(2)}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Pens.: S/. {finanzas.ingresosPensiones} | Extra: S/. {finanzas.ingresosExtra}</p>
+                    </div>
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: '6px solid #ef4444' }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Egresos Totales</p>
+                      <h3 style={{ margin: 0, fontSize: '24px', color: '#111827' }}>S/. {finanzas.totalEgresos.toFixed(2)}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Nóm.: S/. {finanzas.egresosNomina} | Extra: S/. {finanzas.egresosExtra}</p>
+                    </div>
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: `6px solid ${finanzas.balance >= 0 ? '#3b82f6' : '#f97316'}` }}>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Balance Neto</p>
+                      <h3 style={{ margin: 0, fontSize: '24px', color: finanzas.balance >= 0 ? '#1d4ed8' : '#c2410c' }}>S/. {finanzas.balance.toFixed(2)}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Resultado Operativo</p>
+                    </div>
+                  </div>
+
+                  <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', padding: '20px', borderRadius: '16px' }}>
+                    <h3 style={{ margin: '0 0 12px 0', color: '#166534', fontSize: '15px', fontWeight: '700' }}>🏛️ Distribución de Utilidades y Fondos (Regla 20% Reserva / 40% - 40% Socios)</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                      <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 'bold', textTransform: 'uppercase' }}>Reserva Empresa (20%)</span>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534', marginTop: '4px' }}>S/. {finanzas.reservaEmpresa.toFixed(2)}</div>
+                      </div>
+                      <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 'bold', textTransform: 'uppercase' }}>Socio 1 - Daniel Velez (40%)</span>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534', marginTop: '4px' }}>S/. {finanzas.repartoDaniel.toFixed(2)}</div>
+                      </div>
+                      <div style={{ backgroundColor: 'white', padding: '12px', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                        <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 'bold', textTransform: 'uppercase' }}>Socio 2 - Michael Montero (40%)</span>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#166534', marginTop: '4px' }}>S/. {finanzas.repartoMichael.toFixed(2)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {mesFinanzas !== 'todo' && mesFinanzas !== '2026' && (
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h3 style={{ margin: '0 0 15px 0', color: '#374151', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚦 Estado de Cuenta de Alumnos ({mesFinanzas})</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
+                        {todosLosAlumnos.map(alum => {
+                          const haPagado = pagosFirebase.some(p => p.alumno === alum && p.mes === mesFinanzas);
+                          return (
+                            <div key={alum} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${haPagado ? '#bbf7d0' : '#fecdd3'}`, backgroundColor: haPagado ? '#f0fdf4' : '#fff1f2' }}>
+                              <span style={{ fontSize: '13px', fontWeight: '500', color: '#374151', textTransform: 'capitalize' }}>{alum}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 'bold', color: haPagado ? '#166534' : '#9f1239' }}>{haPagado ? '🟢 Al día' : '🔴 Debe'}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '17px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🎓 Registrar Mensualidad de Alumno</h2>
+                      <form onSubmit={handleAgregarPago} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Alumno</label>
+                          <select value={nuevoPagoAlumno} onChange={(e) => setNuevoPagoAlumno(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="">-- Seleccionar --</option>
+                            {todosLosAlumnos.map((alum, idx) => (<option key={idx} value={alum}>{alum}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Monto (S/.)</label>
+                          <input type="number" placeholder="Ej: 150" value={nuevoPagoMonto} onChange={(e) => setNuevoPagoMonto(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes</label>
+                          <select value={nuevoPagoMes} onChange={(e) => setNuevoPagoMes(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="2026-08">Agosto 2026</option>
+                            <option value="2026-07">Julio 2026</option>
+                          </select>
+                        </div>
+                        <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Guardar Mensualidad</button>
+                      </form>
+                    </div>
+
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '17px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📦 Registrar Movimiento Extra</h2>
+                      <form onSubmit={handleAgregarMovimientoExtra} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Tipo de Operación</label>
+                          <select value={tipoMovimiento} onChange={(e) => {setTipoMovimiento(e.target.value); setConceptoMovimiento('');}} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="ingreso_extra">🟩 Ingreso Extra</option>
+                            <option value="gasto_extra">🟥 Gasto Extra Operativo</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Concepto</label>
+                          {tipoMovimiento === 'gasto_extra' ? (
+                            <select value={conceptoMovimiento} onChange={(e) => setConceptoMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                              <option value="">-- Selecciona Categoría --</option>
+                              <option value="Redes sociales">Redes sociales</option>
+                              <option value="Hosting">Hosting</option>
+                              <option value="Dominio .com">Dominio .com</option>
+                              <option value="Dominio .edu.pe">Dominio .edu.pe</option>
+                              <option value="Contador">Contador</option>
+                              <option value="Otros Gastos">Otros</option>
+                            </select>
+                          ) : (
+                            <input type="text" placeholder="Ej: Devolución SUNAT" value={conceptoMovimiento} onChange={(e) => setConceptoMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Monto (S/.)</label>
+                            <input type="number" placeholder="Ej: 200" value={montoMovimiento} onChange={(e) => setMontoMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes</label>
+                            <select value={mesMovimiento} onChange={(e) => setMesMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                              <option value="2026-08">Agosto 2026</option>
+                              <option value="2026-07">Julio 2026</option>
+                            </select>
+                          </div>
+                        </div>
+                        <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Guardar Movimiento</button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Mensualidades</h2>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
+                        {pagosFirebase.filter(p => matchFiltroFinanzas(p.mes)).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro)).map((pago, idx) => (
+                          <div key={pago.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{pago.alumno || '--'}</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>Reg: {pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>+ S/. {Number(pago.monto || 0).toFixed(2)}</span>
+                                <span style={{ fontSize: '11px', color: '#6b7280' }}>Mes: {pago.mes || '--'}</span>
+                              </div>
+                              <button onClick={() => generarPDFRecibo(pago)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '16px' }} title="Descargar Boleta PDF">📄</button>
+                              <button onClick={() => handleEliminarPago(pago.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📦 Movimientos Extra</h2>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
+                        {movimientosExtra.filter(m => matchFiltroFinanzas(m.mes)).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro)).map((mov, idx) => (
+                          <div key={mov.id || idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: `1px solid ${mov.tipo === 'ingreso_extra' ? '#bbf7d0' : '#fecdd3'}` }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontSize: '15px', fontWeight: '600', color: '#374151', textTransform: 'capitalize' }}>{mov.concepto || '--'}</span>
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{mov.fechaRegistro ? new Date(mov.fechaRegistro).toLocaleDateString() : '--'}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '16px', fontWeight: 'bold', color: mov.tipo === 'ingreso_extra' ? '#059669' : '#e11d48' }}>
+                                  {mov.tipo === 'ingreso_extra' ? '+' : '-'} S/. {Number(mov.monto || 0).toFixed(2)}
+                              </span>
+                              <button onClick={() => handleEliminarMovimiento(mov.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar">🗑️</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* CONTENIDO ADMIN - CLASES */}
+              {adminTab === 'clases' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
+                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                    <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Crear Nuevo Grupo o Clase</h2>
+                    <form onSubmit={handleAgregarClase} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      <div style={{ display: 'flex', gap: '15px' }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nombre identificador</label>
+                          <input type="text" placeholder="Ej: Grupo Ana" value={nuevaClaseTitulo} onChange={(e) => setNuevaClaseTitulo(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nivel / Programa</label>
+                          <input type="text" placeholder="Ej: Preparación B2" value={nuevaClaseCurso} onChange={(e) => setNuevaClaseCurso(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '15px' }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Días de clase</label>
+                          <input type="text" placeholder="Ej: Lunes y Miércoles" value={nuevaClaseDias} onChange={(e) => setNuevaClaseDias(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Horario regular</label>
+                          <input type="text" placeholder="Ej: 20:00 - 21:30" value={nuevaClaseHorario} onChange={(e) => setNuevaClaseHorario(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '15px' }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Tarifa por Hora (S/.)</label>
+                          <input type="number" placeholder="Ej: 30" value={nuevaClaseTarifa} onChange={(e) => setNuevaClaseTarifa(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Asignar al Profesor:</label>
+                          <select value={nuevaClaseProfesorId} onChange={(e) => setNuevaClaseProfesorId(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
+                            <option value="">-- Seleccionar --</option>
+                            {profesores.map(prof => (<option key={prof.id} value={prof.id}>{prof.nombre}</option>))}
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Estudiantes (Pre-registrados en el Directorio)</label>
+                        <div className="scroll-casillas" style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', padding: '12px', backgroundColor: '#f9fafb' }}>
+                          {alumnosFirebase.filter(al => al.activo !== false).length === 0 ? (
+                            <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>⚠️ No hay alumnos activos registrados en el Directorio.</p>
+                          ) : (
+                            alumnosFirebase.filter(al => al.activo !== false).map(al => (
+                              <label key={al.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', borderBottom: '1px solid #e5e7eb', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={estudiantesSeleccionados.includes(al.nombre)} onChange={(e) => { if(e.target.checked) setEstudiantesSeleccionados([...estudiantesSeleccionados, al.nombre]); else setEstudiantesSeleccionados(estudiantesSeleccionados.filter(n => n !== al.nombre)); }} style={{ cursor: 'pointer', width: '16px', height: '16px' }} />
+                                <span style={{ fontSize: '14px', color: '#374151', textTransform: 'capitalize' }}>{al.nombre}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '10px' }}>Crear y Asignar Clase</button>
+                    </form>
+                  </div>
+
+                  <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '15px', marginBottom: '20px' }}>
+                      <h2 style={{ margin: 0, fontSize: '20px', color: '#374151' }}>{verArchivadasAdmin ? '🗂️ Clases Archivadas' : '🟢 Clases Activas'}</h2>
+                      <button type="button" onClick={() => setVerArchivadasAdmin(!verArchivadasAdmin)} className="btn-flotante" style={{ background: '#f3f4f6', border: '1px solid #d1d5db', color: '#374151', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>{verArchivadasAdmin ? 'Ver Activas' : 'Ver Archivadas'}</button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                      {clasesFirebase.filter(c => verArchivadasAdmin ? c.archivada : !c.archivada).map(clase => (
+                        <div key={clase.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '16px', borderRadius: '12px', border: '1px solid #e5e7eb', opacity: clase.archivada ? 0.7 : 1 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span style={{ fontSize: '15px', fontWeight: '600', color: clase.archivada ? '#6b7280' : '#111827' }}>{clase.titulo || 'Sin Título'}</span>
+                            <span style={{ fontSize: '12px', color: '#6b7280' }}>{clase.curso || '--'}</span>
+                            <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId ? clase.profesorId.substring(0,5) : 'N/A'}...</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <button onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}>{clase.archivada ? 'Desarchivar' : 'Archivar'}</button>
+                            <button onClick={() => handleEliminarClase(clase.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* CONTENIDO ADMIN - PROFESORES */}
               {adminTab === 'profesores' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Docente</h2>
                       <form onSubmit={handleAgregarProfesor} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -1247,9 +1469,9 @@ function App() {
                       </form>
                     </div>
 
-                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>👥 Personal Registrado</h2>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {profesores.map(prof => (
                           <div key={prof.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: prof.activo !== false ? 1 : 0.5 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1486,7 +1708,7 @@ function App() {
   }
 
   // ==========================================
-  // VISTA 7: SELECCIÓN DE PROFESOR (POST-LOGIN STAFF)
+  // VISTA 7: SELECCIÓN DE PROFESORES DESPUES DE LOGIN STAFF
   // ==========================================
   if (accesoGlobal && !vistaAdmin && !profesorSeleccionado) {
     return (
@@ -1500,7 +1722,7 @@ function App() {
               <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Acceso Administrativo</h2>
               <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa la clave maestra.</p>
               <form onSubmit={handleLoginAdmin}>
-                <input type="password" placeholder="Clave Maestra" className="input-flotante" value={claveAdminInput} onChange={(e) => setClaveAdminInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleLoginAdmin(e); } }} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorAdminPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
+                <input type="password" placeholder="Clave Maestra" className="input-flotante" value={claveAdminInput} onChange={(e) => setClaveAdminInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorAdminPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
                 <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Entrar al Panel</button>
               </form>
             </div>
@@ -1515,7 +1737,7 @@ function App() {
               <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Hola, {(profesorAAutenticar.nombre||'Profesor').split(' ')[0]}</h2>
               <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa tu PIN de seguridad.</p>
               <form onSubmit={handleLoginProfesor}>
-                <input type="password" placeholder="PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleLoginProfesor(e); } }} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
+                <input type="password" placeholder="PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
                 <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Ingresar</button>
               </form>
             </div>
