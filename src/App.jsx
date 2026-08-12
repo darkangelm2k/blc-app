@@ -89,6 +89,13 @@ function App() {
   const [montoMovimiento, setMontoMovimiento] = useState('')
   const [mesMovimiento, setMesMovimiento] = useState('2026-08')
 
+  // NUEVOS ESTADOS PARA IMPORTACIÓN MASIVA DE EXCEL
+  const [textoImportar, setTextoImportar] = useState('')
+  const [alumnoImportar, setAlumnoImportar] = useState('')
+  const [claseImportar, setClaseImportar] = useState('')
+  const [profesorImportar, setProfesorImportar] = useState('')
+  const [procesandoImportacion, setProcesandoImportacion] = useState(false)
+
   const triggerError = (msg) => {
     setMensajeError(msg);
     setMostrarError(true);
@@ -148,6 +155,112 @@ function App() {
     return fechaDato.startsWith(mesFinanzas); 
   }
 
+  // ==========================================
+  // FUNCION DE IMPORTACION MÁGICA (NUEVO)
+  // ==========================================
+  const handleProcesarImportacion = async (e) => {
+    e.preventDefault();
+    if (!textoImportar || !claseImportar || !profesorImportar || !alumnoImportar) {
+      triggerError('Llena todos los campos obligatorios y pega los datos del Excel.');
+      return;
+    }
+
+    setProcesandoImportacion(true);
+    const filas = textoImportar.trim().split('\n');
+    let nuevosAlumnosRegistrados = 0;
+    let registrosGuardados = 0;
+
+    try {
+      const claseRef = clasesFirebase.find(c => c.id === claseImportar);
+      const nivelClase = claseRef ? claseRef.curso : '--';
+      const tarifaClase = claseRef ? claseRef.tarifa : 0;
+      const profesorName = profesores.find(p => p.id === profesorImportar)?.nombre || 'Desconocido';
+      const nombreAlumno = alumnoImportar.trim();
+
+      // 1. Crear alumno si no existe (Magia Automática)
+      let alumnoExiste = alumnosFirebase.some(a => (a.nombre||'').toLowerCase() === nombreAlumno.toLowerCase());
+      if (!alumnoExiste) {
+        await addDoc(collection(db, "alumnos"), { nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', fechaRegistro: new Date().toISOString(), activo: true });
+        nuevosAlumnosRegistrados++;
+        alumnosFirebase.push({nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', activo: true}); // Optimistic update
+      }
+
+      // 2. Matricular al alumno en la clase si no está
+      if (claseRef && !(claseRef.estudiantes || []).includes(nombreAlumno)) {
+         const claseDocRef = doc(db, "clases", claseRef.id);
+         const nuevosEstudiantes = [...(claseRef.estudiantes || []), nombreAlumno];
+         await updateDoc(claseDocRef, { estudiantes: nuevosEstudiantes });
+         claseRef.estudiantes = nuevosEstudiantes; // Optimistic update
+      }
+
+      // 3. Procesar filas del Excel
+      for (let i = 0; i < filas.length; i++) {
+        const filaText = filas[i].trim();
+        if(!filaText) continue;
+        
+        const columnas = filaText.split('\t'); // Las columnas de Excel al pegar se separan con TAB
+        if (columnas.length < 5) continue; 
+
+        // Limpieza de Fecha (Ej: "2024-02-12 00:00:00" -> "2024-02-12")
+        let fechaCruda = columnas[0].trim();
+        let fecha = fechaCruda.split(' ')[0]; 
+        
+        const getNota = (val) => { const v = (val||'').trim(); return (v === '' || v.toLowerCase() === 'nan') ? '' : v; };
+
+        let oral = getNota(columnas[1]);
+        let grammar = getNota(columnas[2]);
+        let reading = getNota(columnas[3]);
+        let listening = getNota(columnas[4]);
+        let writing = getNota(columnas[5]);
+        
+        // Asistencia automática: Si hay notas, consideramos que asistió. Si están vacías, asumimos falta.
+        let asist = 'asistio'; 
+        if(!oral && !grammar && !reading && !listening && !writing) {
+           asist = 'no-asistio';
+        }
+
+        if (fecha && nombreAlumno) {
+          const notasFormat = (asist === 'asistio') ? { oral, grammar, reading, listening, writing } : null;
+          
+          await addDoc(collection(db, "registrosClases"), {
+            profesor: profesorName,
+            clase: claseRef.titulo,
+            nivel: nivelClase,
+            fecha: fecha,
+            horas: 1.5, // 1.5 horas por defecto en historial
+            tarifa: tarifaClase,
+            asistencia: { [nombreAlumno]: asist },
+            notas: notasFormat ? { [nombreAlumno]: notasFormat } : {},
+            observacionesIndividuales: {},
+            observacionGeneral: 'Historial migrado de Excel',
+            fechaRegistro: new Date().toISOString()
+          });
+          registrosGuardados++;
+        }
+      }
+
+      setTextoImportar('');
+      setAlumnoImportar('');
+      setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} alumnos creados, ${registrosGuardados} clases históricas guardadas.`);
+      setTimeout(() => setMensajeExito(''), 6000);
+      
+      // Recargar para refrescar la UI
+      const alumnosSnap = await getDocs(collection(db, "alumnos"));
+      setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
+      const regSnap = await getDocs(collection(db, "registrosClases"));
+      setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+    } catch (err) {
+      triggerError('Error al importar. Revisa que el copiado de celdas esté correcto.');
+      console.error(err);
+    } finally {
+      setProcesandoImportacion(false);
+    }
+  }
+
+  // ==========================================
+  // FUNCIONES DE EXPORTACIÓN A PDF Y EXCEL
+  // ==========================================
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
     let currentY = 15;
     try {
@@ -661,7 +774,6 @@ function App() {
       @keyframes aparecerFade { from { opacity: 0; transform: scale(0.95) translate(-50%, -50%); } to { opacity: 1; transform: scale(1) translate(-50%, -50%); } }
       @keyframes vibrar { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
       
-      /* NUEVOS ESTILOS PARA EL MENU IZQUIERDO ADMIN */
       .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s ease; margin-bottom: 8px; }
       .admin-menu-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
       .admin-menu-btn.active { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
@@ -922,7 +1034,7 @@ function App() {
   }
 
   // ==========================================
-  // VISTA 5: ADMIN DASHBOARD (MENÚ MEJORADO Y PESTAÑA BACKUP)
+  // VISTA 5: ADMIN DASHBOARD
   // ==========================================
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
@@ -951,9 +1063,13 @@ function App() {
               <button className={`admin-menu-btn ${adminTab === 'clases' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('clases')}><span style={{ fontSize: '18px' }}>📚</span> Gestión de Clases</button>
               <button className={`admin-menu-btn ${adminTab === 'profesores' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('profesores')}><span style={{ fontSize: '18px' }}>👔</span> Directorio Profesores</button>
               
-              {/* NUEVA PESTAÑA DE BACKUP */}
-              <button className={`admin-menu-btn ${adminTab === 'backup' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('backup')} style={{ marginTop: '15px', borderStyle: 'dashed', borderColor: adminTab === 'backup' ? '#fca5a5' : '#cbd5e1' }}>
-                <span style={{ fontSize: '18px' }}>💽</span> Respaldo de Datos
+              <div style={{ margin: '15px 0', borderTop: '1px solid #e5e7eb' }}></div>
+              
+              <button className={`admin-menu-btn ${adminTab === 'migracion' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('migracion')} style={{ borderStyle: 'dashed', borderColor: adminTab === 'migracion' ? '#3b82f6' : '#cbd5e1', color: '#2563eb' }}>
+                <span style={{ fontSize: '18px' }}>🔄</span> Importar Historial
+              </button>
+              <button className={`admin-menu-btn ${adminTab === 'backup' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('backup')} style={{ marginTop: '8px', borderStyle: 'dashed', borderColor: adminTab === 'backup' ? '#fca5a5' : '#cbd5e1', color: '#e11d48' }}>
+                <span style={{ fontSize: '18px' }}>💽</span> Backup Nuclear
               </button>
             </div>
             
@@ -967,7 +1083,70 @@ function App() {
           <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
-              {/* NUEVA VISTA DEDICADA DE BACKUP */}
+              {/* MÁQUINA DEL TIEMPO (NUEVO IMPORTADOR MASIVO) */}
+              {adminTab === 'migracion' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
+                  <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                    <h2 style={{ margin: '0 0 10px 0', fontSize: '24px', color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '10px' }}>🔄 Máquina del Tiempo (Importador)</h2>
+                    <p style={{ color: '#4b5563', fontSize: '14px', marginBottom: '24px', lineHeight: '1.5' }}>
+                      Copia las celdas directamente de tu Excel antiguo y pégalas aquí. <br/>
+                      <strong>Formato requerido:</strong> Fecha | Oral | Grammar | Reading | Listening | Writing
+                    </p>
+
+                    <form onSubmit={handleProcesarImportacion} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
+                        <div>
+                          <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>1. Selecciona la Clase</label>
+                          <select value={claseImportar} onChange={(e) => setClaseImportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb' }}>
+                            <option value="">-- Buscar Grupo --</option>
+                            {clasesFirebase.map(c => <option key={c.id} value={c.id}>{c.titulo} ({c.curso})</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>2. Profesor a cargo</label>
+                          <select value={profesorImportar} onChange={(e) => setProfesorImportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb' }}>
+                            <option value="">-- Buscar Docente --</option>
+                            {profesores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>3. Nombre del Alumno</label>
+                          <input 
+                            list="lista-alumnos-import" 
+                            value={alumnoImportar} 
+                            onChange={(e) => setAlumnoImportar(e.target.value)} 
+                            className="input-flotante" 
+                            placeholder="Ej: Ana Castillo" 
+                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }}
+                          />
+                          <datalist id="lista-alumnos-import">
+                            {todosLosAlumnos.map((alum, idx) => <option key={idx} value={alum} />)}
+                          </datalist>
+                          <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#059669' }}>Si no existe, se creará automáticamente.</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>4. Pega los datos de Excel aquí:</label>
+                        <textarea 
+                          value={textoImportar} 
+                          onChange={(e) => setTextoImportar(e.target.value)} 
+                          className="input-flotante" 
+                          rows="10" 
+                          placeholder="2024-02-12&#9;12&#9;10&#9;13&#9;12&#9;12&#10;2024-02-15&#9;13&#9;11&#9;12&#9;12&#9;12" 
+                          style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px dashed #3b82f6', outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'monospace', backgroundColor: '#eff6ff' }}
+                        ></textarea>
+                      </div>
+
+                      <button type="submit" disabled={procesandoImportacion} className="btn-flotante" style={{ padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: procesandoImportacion ? '#9ca3af' : '#2563eb', color: 'white', fontWeight: 'bold', fontSize: '16px', cursor: procesandoImportacion ? 'not-allowed' : 'pointer' }}>
+                        {procesandoImportacion ? '⏳ Importando historial...' : '🚀 Procesar Importación Masiva'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* BACKUP NUCLEAR */}
               {adminTab === 'backup' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '40px 32px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', textAlign: 'center', maxWidth: '600px', margin: '0 auto', width: '100%', borderTop: '5px solid #e11d48' }}>
@@ -985,7 +1164,7 @@ function App() {
                 </div>
               )}
 
-              {/* REPORTES (Ya sin la caja roja de Backup) */}
+              {/* REPORTES */}
               {adminTab === 'reportes' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -1081,11 +1260,12 @@ function App() {
                 </div>
               )}
 
+              {/* DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno</h2>
                       <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
                       <form onSubmit={handleAgregarAlumno} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
@@ -1404,7 +1584,6 @@ function App() {
                       
                       <div>
                         <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Seleccionar Estudiantes (Pre-registrados en el Directorio)</label>
-                        {/* BUSCADOR IN-LINE */}
                         <input 
                           type="text" 
                           placeholder="🔍 Buscar estudiante por nombre o documento..." 
