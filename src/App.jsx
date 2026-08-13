@@ -95,9 +95,31 @@ function App() {
   const [profesorImportar, setProfesorImportar] = useState('')
   const [procesandoImportacion, setProcesandoImportacion] = useState(false)
 
+  const [mostrarModalExamen, setMostrarModalExamen] = useState(false)
+  const [examenAlumno, setExamenAlumno] = useState('')
+  const [examenNivel, setExamenNivel] = useState('')
+  const [examenNota, setExamenNota] = useState('')
+  const [examenFecha, setExamenFecha] = useState('')
+  const [busquedaAlumnoExamen, setBusquedaAlumnoExamen] = useState('')
+
+  // ==========================================
+  // GENERADOR GLOBAL DE MESES Y AÑOS (2024-2026)
+  // ==========================================
+  const opcionesMesesGlobal = [];
+  for(let y=2026; y>=2024; y--) {
+      for(let m=12; m>=1; m--) {
+          opcionesMesesGlobal.push(`${y}-${String(m).padStart(2,'0')}`);
+      }
+  }
+
+  const formatMesTexto = (yyyy_mm) => {
+      const [y, m] = yyyy_mm.split('-');
+      const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+      return `${nombresMeses[parseInt(m)-1]} ${y}`;
+  }
+
   const triggerError = (msg) => {
-    setMensajeError(msg);
-    setMostrarError(true);
+    setMensajeError(msg); setMostrarError(true);
     setTimeout(() => { setMostrarError(false); setMensajeError(''); }, 3500);
   }
 
@@ -128,10 +150,6 @@ function App() {
     cargarDatos();
   }, [mensajeExito]); 
 
-  // ==========================================
-  // TRADUCTOR UNIVERSAL DE FECHAS (NUEVO)
-  // Convierte "29/06/2026" a "2026-06-29" para que los filtros y el orden no fallen nunca.
-  // ==========================================
   const parseFechaUniversal = (fechaStr) => {
     if(!fechaStr) return '';
     if(fechaStr.includes('/')) {
@@ -166,7 +184,7 @@ function App() {
     if (!fechaDato) return false;
     if (mesFinanzas === 'todo') return true;
     const f = parseFechaUniversal(fechaDato);
-    if (mesFinanzas === '2026') return f.startsWith('2026');
+    if (['2026', '2025', '2024'].includes(mesFinanzas)) return f.startsWith(mesFinanzas);
     return f.startsWith(mesFinanzas); 
   }
 
@@ -174,6 +192,10 @@ function App() {
     e.preventDefault();
     if (!textoImportar || !claseImportar || !profesorImportar || !alumnoImportar) {
       triggerError('Llena todos los campos obligatorios y pega los datos del Excel.'); return;
+    }
+    
+    if (alumnoImportar.length > 60) {
+      triggerError('El nombre del alumno es muy largo. ¿Pegaste la tabla en la casilla equivocada?'); return;
     }
 
     setProcesandoImportacion(true);
@@ -208,14 +230,16 @@ function App() {
         if (columnas.length < 5) continue; 
 
         let fechaCruda = columnas[0].trim();
+        
+        if (!fechaCruda.match(/\d{2,4}[-/]\d{1,2}[-/]\d{1,4}/)) continue;
+
         let fecha = fechaCruda.split(' ')[0]; 
-        // Conversión limpia para la BD en la importación
         if(fecha.includes('/')) {
             const parts = fecha.split('/');
             if(parts.length === 3) fecha = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
         }
         
-        const getNota = (val) => { const v = (val||'').trim(); return (v === '' || v.toLowerCase() === 'nan') ? '' : v; };
+        const getNota = (val) => { const v = (val||'').trim(); return (v === '' || v.toLowerCase() === 'nan' || v === '-') ? '' : v; };
         let oral = getNota(columnas[1]); let grammar = getNota(columnas[2]); let reading = getNota(columnas[3]); let listening = getNota(columnas[4]); let writing = getNota(columnas[5]);
         
         let asist = 'asistio'; 
@@ -236,6 +260,22 @@ function App() {
       const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
       const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { triggerError('Error al importar. Revisa el formato de los datos copiados.'); } finally { setProcesandoImportacion(false); }
+  }
+
+  const handleGuardarExamen = async (e) => {
+    e.preventDefault();
+    if (!examenAlumno || !examenNivel || !examenNota || !examenFecha) {
+      triggerError("Por favor completa todos los campos del examen."); return;
+    }
+    try {
+      await addDoc(collection(db, "registrosClases"), {
+        profesor: profesorSeleccionado.nombre, clase: "FINAL PROJECT EXAM", nivel: examenNivel, fecha: examenFecha,
+        horas: 1, tarifa: 0, asistencia: { [examenAlumno]: 'asistio' }, notas: { [examenAlumno]: examenNota }, 
+        observacionesIndividuales: { [examenAlumno]: "Proyecto Final / Examen" }, observacionGeneral: "Evaluación Final", fechaRegistro: new Date().toISOString()
+      });
+      setMensajeExito("¡Examen Final guardado con éxito! 🎓✅"); setTimeout(() => setMensajeExito(''), 4000);
+      setMostrarModalExamen(false); setExamenAlumno(''); setExamenNivel(''); setExamenNota(''); setExamenFecha(''); setBusquedaAlumnoExamen('');
+    } catch (err) { triggerError("Error al guardar el examen. Revisa tu conexión."); }
   }
 
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
@@ -260,9 +300,7 @@ function App() {
     const startY = await agregarEncabezadoPDF(doc, "Comprobante de Pago", [`Centro: Boss Language Center SAC`, `RUC: 20603806795`, `Fecha de Emisión: ${new Date().toLocaleDateString()}`]);
     doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text("Detalles de la Operación:", 14, startY + 10);
     doc.setFontSize(12); doc.setTextColor(75, 85, 99);
-    doc.text(`Alumno: ${(pago.alumno || 'Alumno').toUpperCase()}`, 14, startY + 20);
-    doc.text(`Mes Cancelado: ${pago.mes || '--'}`, 14, startY + 28);
-    doc.text(`Fecha de Registro en Sistema: ${pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}`, 14, startY + 36);
+    doc.text(`Alumno: ${(pago.alumno || 'Alumno').toUpperCase()}`, 14, startY + 20); doc.text(`Mes Cancelado: ${pago.mes || '--'}`, 14, startY + 28); doc.text(`Fecha de Registro en Sistema: ${pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}`, 14, startY + 36);
     doc.setFontSize(18); doc.setTextColor(5, 150, 105); doc.text(`Total Pagado: S/. ${Number(pago.monto || 0).toFixed(2)}`, 14, startY + 55);
     doc.setFontSize(10); doc.setTextColor(156, 163, 175); doc.text("Documento interno y oficial de Boss Language Center SAC.", 14, startY + 75);
     doc.save(`Recibo_BLC_${pago.alumno || 'Pago'}_${pago.mes || ''}.pdf`);
@@ -274,7 +312,8 @@ function App() {
     if (mesFiltroAlumno !== 'todo') {
         registrosAlumno = registrosAlumno.filter(reg => {
           const f = parseFechaUniversal(reg.fecha);
-          return mesFiltroAlumno === '2026' ? f.startsWith('2026') : f.startsWith(mesFiltroAlumno);
+          if(['2026', '2025', '2024'].includes(mesFiltroAlumno)) return f.startsWith(mesFiltroAlumno);
+          return f.startsWith(mesFiltroAlumno);
         });
     }
     registrosAlumno.sort((a,b) => new Date(parseFechaUniversal(a.fecha)) - new Date(parseFechaUniversal(b.fecha)));
@@ -293,13 +332,7 @@ function App() {
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
     const periodoStr = mesFiltroAlumno === 'todo' ? 'Historial Completo' : mesFiltroAlumno;
 
-    const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [
-      `Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, 
-      `Periodo Evaluado: ${periodoStr}`,
-      `Promedio Global: ${promedioGlobal}`, 
-      `Asistencia Total: ${asistenciaPorcentaje}%`,
-      `Generado: ${new Date().toLocaleDateString()}`
-    ]);
+    const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [`Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, `Periodo Evaluado: ${periodoStr}`, `Promedio Global: ${promedioGlobal}`, `Asistencia Total: ${asistenciaPorcentaje}%`, `Generado: ${new Date().toLocaleDateString()}`]);
 
     const tableData = [];
     registrosAlumno.forEach(reg => {
@@ -323,7 +356,7 @@ function App() {
 
   const generarPDFPlanilla = async () => {
     const doc = new jsPDF();
-    const nombreMes = mesPlanilla === "2026-08" ? "Agosto 2026" : "Julio 2026";
+    const nombreMes = formatMesTexto(mesPlanilla);
     const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado?.nombre || 'Docente'}`, `Periodo: ${nombreMes}`, `Centro: Boss Language Center SAC`]);
     const registrosMes = registrosFirebase.filter(reg => {
       if(reg.profesor !== profesorSeleccionado?.nombre) return false;
@@ -345,15 +378,15 @@ function App() {
 
   const generarPDFReporteClase = async () => {
     const doc = new jsPDF();
-    let periodoStr = mesExportar === 'todo' ? 'Historial Completo' : mesExportar;
+    let periodoStr = mesExportar === 'todo' ? 'Historial Completo' : (mesExportar.length === 4 ? `Año ${mesExportar}` : formatMesTexto(mesExportar));
     const startY = await agregarEncabezadoPDF(doc, "Reporte Académico de Grupo", [`Clase: ${claseSeleccionada?.titulo || 'Grupo'}`, `Nivel Actual: ${claseSeleccionada?.curso || '--'}`, `Profesor a cargo: ${profesorSeleccionado?.nombre || '--'}`, `Periodo: ${periodoStr}`]);
-    let mesPrefix = ""; if (mesExportar === "Agosto 2026") mesPrefix = "2026-08"; else if (mesExportar === "Julio 2026") mesPrefix = "2026-07"; else if (mesExportar === "Junio 2026") mesPrefix = "2026-06";
     const registrosFiltrados = registrosFirebase.filter(reg => {
       if(reg.clase !== claseSeleccionada?.titulo) return false;
-      if(mesPrefix === "") return true;
+      if(mesExportar === "todo") return true;
       const f = parseFechaUniversal(reg.fecha);
-      return f.startsWith(mesPrefix);
+      return f.startsWith(mesExportar);
     }).sort((a, b) => new Date(parseFechaUniversal(a.fecha)) - new Date(parseFechaUniversal(b.fecha)));
+    
     const tableData = [];
     registrosFiltrados.forEach(reg => {
       const estudiantes = Object.keys(reg.asistencia || {});
@@ -372,7 +405,7 @@ function App() {
   const generarPDFAdmin = async (resultados) => {
     if(resultados.length === 0) return;
     const doc = new jsPDF();
-    let periodoStr = mesFiltroBusqueda === 'todo' ? 'Historial Completo' : mesFiltroBusqueda;
+    let periodoStr = mesFiltroBusqueda === 'todo' ? 'Historial Completo' : (mesFiltroBusqueda.length === 4 ? `Año ${mesFiltroBusqueda}` : formatMesTexto(mesFiltroBusqueda));
     let tituloPDF = ""; let subtitulos = [];
 
     if (tipoBusqueda === 'alumno') {
@@ -423,14 +456,19 @@ function App() {
          const obs = (reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); 
          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
+         
          const n = reg.notas?.[alum];
          let o='--', g='--', r='--', l='--', w='--', prom='--';
          
          if (estado === 'asistio' || estado === 'reprogramo') {
            if (typeof n === 'object' && n !== null) {
-              o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--'; prom = getPromedio(n);
-           } else if (n) { prom = parseFloat(n).toFixed(1); }
+              o = n.oral || '--'; g = n.grammar || '--'; r = n.reading || '--'; l = n.listening || '--'; w = n.writing || '--';
+              prom = getPromedio(n);
+           } else if (n) {
+              prom = parseFloat(n).toFixed(1);
+           }
          }
+
          csvContent += `${reg.fecha || '--'},${alum},${reg.clase || '--'} (${nivelReal}),${reg.profesor || '--'},${estado},${o},${g},${r},${l},${w},${prom},${obs}\n`;
       });
     });
@@ -449,6 +487,7 @@ function App() {
         if(!statsAlumnos[est]) statsAlumnos[est] = { faltas: 0, asistencias: 0, notasSum: 0, notasCount: 0 };
         if(reg.asistencia[est] === 'no-asistio') statsAlumnos[est].faltas++;
         else if(reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') statsAlumnos[est].asistencias++;
+        
         if (reg.asistencia[est] === 'asistio' || reg.asistencia[est] === 'reprogramo') {
           const prom = parseFloat(getPromedio(reg.notas?.[est]));
           if(!isNaN(prom)) { statsAlumnos[est].notasSum += prom; statsAlumnos[est].notasCount++; }
@@ -472,8 +511,8 @@ function App() {
     registrosFirebase.forEach(reg => {
       if (mesFiltroBusqueda !== 'todo') {
          const f = parseFechaUniversal(reg.fecha);
-         if (mesFiltroBusqueda === '2026' && !f.startsWith('2026')) return;
-         if (mesFiltroBusqueda !== '2026' && !f.startsWith(mesFiltroBusqueda)) return;
+         if (['2026','2025','2024'].includes(mesFiltroBusqueda) && !f.startsWith(mesFiltroBusqueda)) return;
+         if (!['2026','2025','2024'].includes(mesFiltroBusqueda) && !f.startsWith(mesFiltroBusqueda)) return;
       }
       const profNombre = reg.profesor;
       if (!profNombre || !statsProfesores[profNombre]) return;
@@ -520,8 +559,10 @@ function App() {
     return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
   }
 
+  // BUSCADOR MEJORADO (Ahora acepta Fecha Exacta)
   const resultadosBusqueda = registrosFirebase.filter(reg => {
     if (terminoBusqueda.trim() === '') return false;
+    
     if (tipoBusqueda === 'alumno') {
       const nombresAlumnos = Object.keys(reg.asistencia || {});
       const alumnoEncontrado = nombresAlumnos.find(nombre => (nombre || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
@@ -532,10 +573,16 @@ function App() {
     } else if (tipoBusqueda === 'profesor') {
       const matchProfesor = reg.profesor && reg.profesor.toLowerCase().includes(terminoBusqueda.toLowerCase());
       if (!matchProfesor) return false;
+    } else if (tipoBusqueda === 'fecha') {
+      // Busca tanto en formato original (12/02/2024) como universal (2024-02-12)
+      const f1 = reg.fecha || '';
+      const f2 = parseFechaUniversal(reg.fecha) || '';
+      if (!f1.includes(terminoBusqueda) && !f2.includes(terminoBusqueda)) return false;
     }
+
     if (mesFiltroBusqueda !== 'todo') { 
       const f = parseFechaUniversal(reg.fecha);
-      if (mesFiltroBusqueda === '2026') return f.startsWith('2026');
+      if (['2026', '2025', '2024'].includes(mesFiltroBusqueda)) return f.startsWith(mesFiltroBusqueda);
       return f.startsWith(mesFiltroBusqueda); 
     }
     return true;
@@ -723,6 +770,9 @@ function App() {
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
+  // ==========================================
+  // ESTILOS GLOBALES
+  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -808,10 +858,11 @@ function App() {
     const registrosAlumno = registrosAlumnoRaw.filter(r => {
         if(mesFiltroAlumno === 'todo') return true;
         const f = parseFechaUniversal(r.fecha);
-        return mesFiltroAlumno === '2026' ? f.startsWith('2026') : f.startsWith(mesFiltroAlumno);
+        if (['2026', '2025', '2024'].includes(mesFiltroAlumno)) return f.startsWith(mesFiltroAlumno);
+        return f.startsWith(mesFiltroAlumno);
     });
     
-    const pagosAlumno = pagosAlumnoRaw.filter(p => mesFiltroAlumno === 'todo' || (mesFiltroAlumno === '2026' ? p.mes?.startsWith('2026') : p.mes === mesFiltroAlumno));
+    const pagosAlumno = pagosAlumnoRaw.filter(p => mesFiltroAlumno === 'todo' || (['2026', '2025', '2024'].includes(mesFiltroAlumno) ? p.mes?.startsWith(mesFiltroAlumno) : p.mes === mesFiltroAlumno));
 
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
     let sumas = { oral: 0, grammar: 0, reading: 0, listening: 0, writing: 0 };
@@ -847,7 +898,7 @@ function App() {
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
     const promedioGlobal = notasList.length > 0 ? (notasList.reduce((a,b)=>a+b,0)/notasList.length).toFixed(1) : '--';
     
-    const mesReferencia = mesFiltroAlumno === 'todo' || mesFiltroAlumno === '2026' ? new Date().toISOString().substring(0, 7) : mesFiltroAlumno; 
+    const mesReferencia = (mesFiltroAlumno === 'todo' || ['2026', '2025', '2024'].includes(mesFiltroAlumno)) ? new Date().toISOString().substring(0, 7) : mesFiltroAlumno; 
     const pagoAlDia = pagosFirebase.some(p => p.alumno === alumnoSeleccionado && p.mes === mesReferencia);
 
     return (
@@ -874,9 +925,11 @@ function App() {
                <select value={mesFiltroAlumno} onChange={(e) => setMesFiltroAlumno(e.target.value)} className="input-flotante" style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>
                   <option value="todo">Historial Completo</option>
                   <option value="2026">Todo el 2026 (Anual)</option>
-                  <option value="2026-08">Agosto 2026</option>
-                  <option value="2026-07">Julio 2026</option>
-                  <option value="2026-06">Junio 2026</option>
+                  <option value="2025">Todo el 2025 (Anual)</option>
+                  <option value="2024">Todo el 2024 (Anual)</option>
+                  <optgroup label="Meses Específicos">
+                    {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
+                  </optgroup>
                </select>
             </div>
             <button onClick={generarPDFReporteAlumnoUnico} className="btn-flotante" style={{ backgroundColor: '#2563eb', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.2)' }}>
@@ -1084,6 +1137,7 @@ function App() {
                         <div>
                           <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>3. Nombre del Alumno</label>
                           <input 
+                            maxLength="60"
                             list="lista-alumnos-import" 
                             value={alumnoImportar} 
                             onChange={(e) => setAlumnoImportar(e.target.value)} 
@@ -1147,14 +1201,17 @@ function App() {
                           <option value="alumno">👤 Alumno</option>
                           <option value="clase">📚 Grupo / Empresa</option>
                           <option value="profesor">👨‍🏫 Profesor</option>
+                          <option value="fecha">📅 Fecha Exacta</option>
                         </select>
-                        <input type="text" placeholder={tipoBusqueda === 'alumno' ? "Buscar alumno..." : tipoBusqueda === 'clase' ? "Buscar grupo..." : "Buscar profesor..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+                        <input type="text" placeholder={tipoBusqueda === 'fecha' ? "Ej: 12/02 o 2024-02" : "Buscar..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
                         <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
                           <option value="todo">Historial Completo</option>
                           <option value="2026">Todo el 2026 (Anual)</option>
-                          <option value="2026-08">Agosto 2026</option>
-                          <option value="2026-07">Julio 2026</option>
-                          <option value="2026-06">Junio 2026</option>
+                          <option value="2025">Todo el 2025 (Anual)</option>
+                          <option value="2024">Todo el 2024 (Anual)</option>
+                          <optgroup label="Meses Específicos">
+                            {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
+                          </optgroup>
                         </select>
                       </div>
                       <div style={{ display: 'flex', gap: '10px' }}>
@@ -1299,9 +1356,11 @@ function App() {
                       <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px' }}>
                         <option value="todo">Historial Completo</option>
                         <option value="2026">Todo el 2026 (Anual)</option>
-                        <option value="2026-08">Agosto 2026</option>
-                        <option value="2026-07">Julio 2026</option>
-                        <option value="2026-06">Junio 2026</option>
+                        <option value="2025">Todo el 2025 (Anual)</option>
+                        <option value="2024">Todo el 2024 (Anual)</option>
+                        <optgroup label="Meses Específicos">
+                          {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
+                        </optgroup>
                       </select>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
@@ -1339,9 +1398,11 @@ function App() {
                     <select value={mesFinanzas} onChange={(e) => setMesFinanzas(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '13px', fontWeight: 'bold' }}>
                       <option value="todo">Historial Completo</option>
                       <option value="2026">Todo el 2026 (Anual)</option>
-                      <option value="2026-08">Agosto 2026</option>
-                      <option value="2026-07">Julio 2026</option>
-                      <option value="2026-06">Junio 2026</option>
+                      <option value="2025">Todo el 2025 (Anual)</option>
+                      <option value="2024">Todo el 2024 (Anual)</option>
+                      <optgroup label="Meses Específicos">
+                        {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
+                      </optgroup>
                     </select>
                   </div>
 
@@ -1381,7 +1442,7 @@ function App() {
                     </div>
                   </div>
 
-                  {mesFinanzas !== 'todo' && mesFinanzas !== '2026' && (
+                  {mesFinanzas !== 'todo' && !['2026', '2025', '2024'].includes(mesFinanzas) && (
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h3 style={{ margin: '0 0 15px 0', color: '#374151', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚦 Estado de Cuenta de Alumnos ({mesFinanzas})</h3>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
@@ -1416,8 +1477,7 @@ function App() {
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes</label>
                           <select value={nuevoPagoMes} onChange={(e) => setNuevoPagoMes(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
-                            <option value="2026-08">Agosto 2026</option>
-                            <option value="2026-07">Julio 2026</option>
+                            {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
                           </select>
                         </div>
                         <button type="submit" className="btn-flotante" style={{ padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Guardar Mensualidad</button>
@@ -1458,8 +1518,7 @@ function App() {
                           <div style={{ flex: 1 }}>
                             <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Mes</label>
                             <select value={mesMovimiento} onChange={(e) => setMesMovimiento(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
-                              <option value="2026-08">Agosto 2026</option>
-                              <option value="2026-07">Julio 2026</option>
+                              {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
                             </select>
                           </div>
                         </div>
@@ -1688,6 +1747,42 @@ function App() {
         {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos obligatorios'}</h4></div></div>)}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
+        {/* MODAL PARA EXAMEN FINAL (NUEVO) */}
+        {mostrarModalExamen && (
+          <>
+            <div onClick={() => setMostrarModalExamen(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
+            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '400px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', animation: 'aparecerFade 0.3s ease forwards' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>
+                <h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>📝 Registrar FINAL EXAM</h2>
+                <button onClick={() => setMostrarModalExamen(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
+              </div>
+              <form onSubmit={handleGuardarExamen} style={{ display: 'flex', flexDirection: 'column', gap: '15px', textAlign: 'left' }}>
+                <div>
+                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Fecha del Examen</label>
+                  <input type="date" value={examenFecha} onChange={e => setExamenFecha(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}/>
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Buscar Alumno</label>
+                  <input type="text" placeholder="Escribe para filtrar..." value={busquedaAlumnoExamen} onChange={e => setBusquedaAlumnoExamen(e.target.value)} className="input-flotante" style={{width:'100%', padding: '8px', borderRadius: '8px', border: '1px solid #d1d5db', marginBottom: '5px', boxSizing: 'border-box', fontSize: '12px'}}/>
+                  <select value={examenAlumno} onChange={e => setExamenAlumno(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}>
+                    <option value="">-- Seleccionar Alumno --</option>
+                    {todosLosAlumnos.filter(a => a.toLowerCase().includes(busquedaAlumnoExamen.toLowerCase())).map((a,i) => <option key={i} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Nivel o Libro evaluado</label>
+                  <input type="text" placeholder="Ej: Speak Up Level 3" value={examenNivel} onChange={e => setExamenNivel(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}/>
+                </div>
+                <div>
+                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Nota Final (1 al 20)</label>
+                  <input type="number" min="0" max="20" step="0.1" placeholder="Ej: 18.5" value={examenNota} onChange={e => setExamenNota(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}/>
+                </div>
+                <button type="submit" className="btn-flotante" style={{background:'#2563eb', color:'white', padding:'14px', borderRadius:'8px', border:'none', fontWeight:'bold', marginTop: '10px', fontSize: '15px'}}>Guardar Examen Oficial</button>
+              </form>
+            </div>
+          </>
+        )}
+
         {mostrarModalExportar && (
           <>
             <div onClick={() => setMostrarModalExportar(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
@@ -1699,9 +1794,13 @@ function App() {
               <div style={{ marginBottom: '24px', textAlign: 'left' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Selecciona el periodo:</label>
                 <select value={mesExportar} onChange={(e) => setMesExportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
-                  <option value="Agosto 2026">Agosto 2026</option>
-                  <option value="Julio 2026">Julio 2026</option>
                   <option value="todo">📚 Exportar todo el historial</option>
+                  <option value="2026">Todo el 2026 (Anual)</option>
+                  <option value="2025">Todo el 2025 (Anual)</option>
+                  <option value="2024">Todo el 2024 (Anual)</option>
+                  <optgroup label="Meses Específicos">
+                    {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
+                  </optgroup>
                 </select>
               </div>
               <button onClick={generarPDFReporteClase} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF</button>
@@ -1720,8 +1819,7 @@ function App() {
               <div style={{ marginBottom: '20px', textAlign: 'left' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Periodo a facturar:</label>
                 <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
-                  <option value="2026-08">Agosto 2026</option>
-                  <option value="2026-07">Julio 2026</option>
+                  {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
                 </select>
               </div>
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
@@ -1755,7 +1853,8 @@ function App() {
                 ))
               )}
             </div>
-            <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+            <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button onClick={() => setMostrarModalExamen(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #3b82f6', backgroundColor: '#eff6ff', color: '#1d4ed8', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>📝 Subir Final Exam</button>
               <button onClick={() => setMostrarPlanilla(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>📊 Ver y Exportar Pago</button>
             </div>
           </div>
