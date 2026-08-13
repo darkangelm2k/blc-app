@@ -130,6 +130,12 @@ function App() {
     setTimeout(() => { setMostrarError(false); setMensajeError(''); }, 3500);
   }
 
+  // AUTO-FORMATEO DE NOMBRES (Mejora: Title Case)
+  const formatearNombre = (str) => {
+    if (!str) return '';
+    return str.trim().toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  }
+
   useEffect(() => {
     const cargarDatos = async () => {
       try {
@@ -168,10 +174,7 @@ function App() {
     return fechaStr; 
   }
 
-  // EL EXORCISMO 👻❌: Ahora la lista maestra de alumnos SOLO extrae datos de la base oficial de alumnos
-  // ignorando a cualquier fantasma que se haya quedado atrapado en el arreglo de una clase.
   const todosLosAlumnos = alumnosFirebase.map(a => a.nombre).filter(Boolean).sort((a, b) => a.localeCompare(b));
-  
   const alumnosActivos = alumnosFirebase.filter(a => a.activo !== false).map(a => a.nombre).sort((a, b) => a.localeCompare(b));
 
   const getPromedio = (notasDato) => {
@@ -201,7 +204,6 @@ function App() {
     if (!textoImportar || !claseImportar || !profesorImportar || !alumnoImportar) {
       triggerError('Llena todos los campos obligatorios y pega los datos del Excel.'); return;
     }
-    
     if (alumnoImportar.length > 60) {
       triggerError('El nombre del alumno es muy largo. ¿Pegaste la tabla en la casilla equivocada?'); return;
     }
@@ -215,7 +217,8 @@ function App() {
       const nivelClase = claseRef ? claseRef.curso : '--';
       const tarifaClase = claseRef ? claseRef.tarifa : 0;
       const profesorName = profesores.find(p => p.id === profesorImportar)?.nombre || 'Desconocido';
-      const nombreAlumno = alumnoImportar.trim();
+      
+      const nombreAlumno = formatearNombre(alumnoImportar); // APLICAR FORMATO
 
       let alumnoExiste = alumnosFirebase.some(a => (a.nombre||'').toLowerCase() === nombreAlumno.toLowerCase());
       if (!alumnoExiste) {
@@ -263,7 +266,7 @@ function App() {
           registrosGuardados++;
         }
       }
-      setTextoImportar(''); setAlumnoImportar(''); setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} alumnos creados, ${registrosGuardados} clases históricas guardadas.`); setTimeout(() => setMensajeExito(''), 6000);
+      setTextoImportar(''); setAlumnoImportar(''); setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} alumnos creados, ${registrosGuardados} clases guardadas.`); setTimeout(() => setMensajeExito(''), 6000);
       const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
       const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { triggerError('Error al importar. Revisa el formato de los datos copiados.'); } finally { setProcesandoImportacion(false); }
@@ -288,31 +291,34 @@ function App() {
 
   const handleActualizarAlumno = async (id, oldName) => {
     if(!editAlumnoNombre || !editAlumnoNumDoc) { triggerError("El nombre y el documento son obligatorios."); return; }
+    
+    const nombreLimpio = formatearNombre(editAlumnoNombre); // APLICAR FORMATO
+
     try {
       await updateDoc(doc(db, "alumnos", id), {
-        nombre: editAlumnoNombre, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''
+        nombre: nombreLimpio, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''
       });
-      setAlumnosFirebase(prev => prev.map(a => a.id === id ? {...a, nombre: editAlumnoNombre, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''} : a));
+      setAlumnosFirebase(prev => prev.map(a => a.id === id ? {...a, nombre: nombreLimpio, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''} : a));
 
-      if (editAlumnoNombre !== oldName) {
+      if (nombreLimpio !== oldName) {
          const clasesToUpdate = clasesFirebase.filter(c => (c.estudiantes||[]).includes(oldName));
          for (let c of clasesToUpdate) {
-            const newEstudiantes = c.estudiantes.map(e => e === oldName ? editAlumnoNombre : e);
+            const newEstudiantes = c.estudiantes.map(e => e === oldName ? nombreLimpio : e);
             await updateDoc(doc(db, "clases", c.id), { estudiantes: newEstudiantes });
          }
          const regsToUpdate = registrosFirebase.filter(r => r.asistencia && r.asistencia[oldName]);
          for (let r of regsToUpdate) {
-             const newAsist = {...r.asistencia}; newAsist[editAlumnoNombre] = newAsist[oldName]; delete newAsist[oldName];
-             const newNotas = {...(r.notas || {})}; if(newNotas[oldName]) { newNotas[editAlumnoNombre] = newNotas[oldName]; delete newNotas[oldName]; }
-             const newObs = {...(r.observacionesIndividuales || {})}; if(newObs[oldName]) { newObs[editAlumnoNombre] = newObs[oldName]; delete newObs[oldName]; }
+             const newAsist = {...r.asistencia}; newAsist[nombreLimpio] = newAsist[oldName]; delete newAsist[oldName];
+             const newNotas = {...(r.notas || {})}; if(newNotas[oldName]) { newNotas[nombreLimpio] = newNotas[oldName]; delete newNotas[oldName]; }
+             const newObs = {...(r.observacionesIndividuales || {})}; if(newObs[oldName]) { newObs[nombreLimpio] = newObs[oldName]; delete newObs[oldName]; }
              await updateDoc(doc(db, "registrosClases", r.id), { asistencia: newAsist, notas: newNotas, observacionesIndividuales: newObs });
          }
          const cSnap = await getDocs(collection(db, "clases")); setClasesFirebase(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
          const rSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       }
-      setMensajeExito("¡Datos de alumno actualizados perfectamente! ✏️✅"); setTimeout(() => setMensajeExito(''), 4000);
+      setMensajeExito("¡Datos actualizados perfectamente! ✏️✅"); setTimeout(() => setMensajeExito(''), 4000);
       setEditandoAlumnoId(null);
-    } catch(err) { triggerError("Error al guardar cambios de edición."); }
+    } catch(err) { triggerError("Error al guardar cambios."); }
   }
 
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
@@ -640,10 +646,14 @@ function App() {
     }
   }
 
+  // MEJORA: SEGURO ANTI-DESASTRES PARA ELIMINAR CLASE
   const handleEliminarClase = async (id) => {
-    if(window.confirm('⚠️ ¿Estás seguro de ELIMINAR PERMANENTEMENTE esta clase?')) {
+    const confirmacion = window.prompt('⚠️ PELIGRO: Para borrar esta clase y desconectar a sus alumnos, escribe la palabra ELIMINAR');
+    if (confirmacion === 'ELIMINAR') {
       await deleteDoc(doc(db, "clases", id)); setClasesFirebase(clasesFirebase.filter(c => c.id !== id));
-      setMensajeExito('Clase eliminada 🗑️'); setTimeout(() => setMensajeExito(''), 3000);
+      setMensajeExito('Clase eliminada permanentemente 🗑️'); setTimeout(() => setMensajeExito(''), 3000);
+    } else if (confirmacion !== null) {
+      triggerError('Palabra incorrecta. Operación cancelada por seguridad.');
     }
   }
 
@@ -697,8 +707,11 @@ function App() {
     if (!nuevoAlumnoNombre || !nuevoAlumnoNumDoc) { triggerError('Nombre y documento son obligatorios'); return; }
     const existeDoc = alumnosFirebase.some(a => a.numDoc === nuevoAlumnoNumDoc);
     if (existeDoc) { triggerError('Ese documento ya está registrado. Usa otro.'); return; }
+    
+    const nombreLimpio = formatearNombre(nuevoAlumnoNombre); // APLICAR FORMATO
+
     try {
-      await addDoc(collection(db, "alumnos"), { nombre: nuevoAlumnoNombre, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, email: nuevoAlumnoEmail || '', fechaRegistro: new Date().toISOString(), activo: true });
+      await addDoc(collection(db, "alumnos"), { nombre: nombreLimpio, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, email: nuevoAlumnoEmail || '', fechaRegistro: new Date().toISOString(), activo: true });
       setNuevoAlumnoNombre(''); setNuevoAlumnoNumDoc(''); setNuevoAlumnoEmail(''); setMensajeExito('Alumno registrado en el Directorio ✅'); setTimeout(() => setMensajeExito(''), 3000);
     } catch (error) { triggerError('Error al guardar en base de datos'); }
   }
@@ -824,12 +837,12 @@ function App() {
   }
 
   // ==========================================
-  // ESTILOS GLOBALES
+  // ESTILOS GLOBALES & MEDIA QUERIES (Mejora: Modo App Móvil)
   // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-      .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #e5e7eb; }
+      .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #e5e7eb; position: relative; }
       .login-card { background: white; padding: 40px 40px 30px; border-radius: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 100%; max-width: 320px; text-align: center; position: relative; }
       .login-input-group { background-color: #f3f4f6; border-radius: 6px; margin-bottom: 16px; display: flex; align-items: center; padding: 0 15px; }
       .login-input { border: none; background: transparent; padding: 14px 0; width: 100%; outline: none; font-size: 14px; color: #4b5563; }
@@ -843,18 +856,41 @@ function App() {
       .btn-flotante:active { transform: translateY(1px); }
       .input-flotante { transition: all 0.2s ease; text-align: left; }
       .input-flotante:focus, .input-flotante:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); border-color: #3b82f6 !important; }
+      
       @keyframes aparecerFade { from { opacity: 0; transform: scale(0.95) translate(-50%, -50%); } to { opacity: 1; transform: scale(1) translate(-50%, -50%); } }
       @keyframes vibrar { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
-      .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s ease; margin-bottom: 8px; }
-      .admin-menu-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-      .admin-menu-btn.active { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
-      .admin-menu-btn.inactive { background-color: #ffffff; border: 1px solid #e5e7eb; color: #4b5563; }
+      
       .scroll-casillas::-webkit-scrollbar { width: 6px; }
       .scroll-casillas::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
       .scroll-casillas::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
       .scroll-casillas::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       .big-btn-home { padding: 20px 30px; border-radius: 16px; font-size: 18px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 10px; transition: all 0.3s ease; border: none; width: 250px; }
       .big-btn-home:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+      
+      /* Clases Estructurales para Modo Responsivo */
+      .dashboard-layout { display: flex; height: 100vh; overflow: hidden; background-color: #f4f6f8; }
+      .sidebar { width: 280px; background-color: white; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; }
+      .sidebar-prof { width: 300px; background-color: white; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; }
+      .sidebar-menu { padding: 20px 16px; flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
+      .main-content { flex: 1; padding: 40px; overflow-y: auto; }
+      .admin-menu-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s ease; margin-bottom: 8px; }
+      .admin-menu-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+      .admin-menu-btn.active { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+      .admin-menu-btn.inactive { background-color: #ffffff; border: 1px solid #e5e7eb; color: #4b5563; }
+      .grid-resp-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+      @media (max-width: 768px) {
+        .dashboard-layout { flex-direction: column; }
+        .sidebar, .sidebar-prof { width: 100% !important; height: auto !important; border-right: none !important; border-bottom: 1px solid #e5e7eb; }
+        .sidebar-menu { flex-direction: row !important; overflow-x: auto; padding: 10px !important; }
+        .admin-menu-btn { margin-bottom: 0 !important; margin-right: 8px !important; white-space: nowrap; flex-shrink: 0; }
+        .main-content { padding: 15px !important; }
+        .grid-resp-2 { grid-template-columns: 1fr !important; }
+        .big-btn-home { width: 100%; max-width: 300px; margin-bottom: 15px; }
+        .login-card { margin: 0 15px; width: calc(100% - 30px); }
+        .mobile-stack { flex-direction: column !important; align-items: stretch !important; }
+        .mobile-stack > * { width: 100% !important; margin-bottom: 10px; }
+      }
     `}</style>
   )
 
@@ -863,14 +899,19 @@ function App() {
       <div className="login-container" style={{ flexDirection: 'column' }}>
         {estilosGlobales}
         <img src="/boss_accredible.png" alt="Logo" style={{ height: '90px', marginBottom: '40px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-        <h1 style={{ color: '#1f2937', marginBottom: '40px', fontSize: '28px', textAlign: 'center' }}>Bienvenido a Boss Language Center</h1>
-        <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap', justifyContent: 'center' }}>
+        <h1 style={{ color: '#1f2937', marginBottom: '40px', fontSize: '28px', textAlign: 'center', padding: '0 20px' }}>Bienvenido a Boss Language Center</h1>
+        <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap', justifyContent: 'center', padding: '0 20px' }}>
           <button onClick={() => setModoIngreso('alumno')} className="big-btn-home" style={{ backgroundColor: '#059669', color: 'white', boxShadow: '0 4px 15px rgba(5, 150, 105, 0.3)' }}>
             <span style={{ fontSize: '40px' }}>🎓</span> Portal Estudiantes <span style={{ fontSize: '13px', fontWeight: 'normal', opacity: 0.9 }}>Ver notas y asistencias</span>
           </button>
           <button onClick={() => setModoIngreso('staff')} className="big-btn-home" style={{ backgroundColor: '#1f2937', color: 'white', boxShadow: '0 4px 15px rgba(31, 41, 55, 0.3)' }}>
             <span style={{ fontSize: '40px' }}>💼</span> Acceso Docentes / Staff <span style={{ fontSize: '13px', fontWeight: 'normal', opacity: 0.9 }}>Gestión académica interna</span>
           </button>
+        </div>
+        
+        {/* LA CEREZA DEL PASTEL: VERSIÓN COMBINADA */}
+        <div style={{ position: 'absolute', bottom: '20px', color: '#9ca3af', fontSize: '13px', fontWeight: '500', letterSpacing: '0.5px' }}>
+           Versión 3.0: First Class & Crispy Edition 🌟🍗
         </div>
       </div>
     )
@@ -1083,36 +1124,8 @@ function App() {
     )
   }
 
-  if (modoIngreso === 'staff' && !accesoGlobal) {
-    return (
-      <div className="login-container" style={{ flexDirection: 'column' }}>
-        {estilosGlobales}
-        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '12px 24px', borderRadius: '12px', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}><strong>⚠️ Error: </strong>{mensajeError}</div>)}
-        <button onClick={() => setModoIngreso('inicio')} style={{ position: 'absolute', top: 30, left: 30, background: 'white', border: '1px solid #d1d5db', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', color: '#4b5563' }}>← Volver</button>
-        <div className="login-card" style={{ animation: errorLoginGlobal ? 'vibrar 0.3s ease' : 'none' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '10px' }}>
-            <img src="/boss_accredible.png" alt="Logo" style={{ height: '70px', width: 'auto', objectFit: 'contain' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-          </div>
-          <h2 style={{ color: '#4b5563', fontSize: '18px', fontWeight: '500', marginBottom: '25px' }}>Staff Log in</h2>
-          <form onSubmit={handleLoginGlobal}>
-            <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
-              <input type="text" placeholder="User ID" className="login-input" value={usuarioGlobal} onChange={(e) => setUsuarioGlobal(e.target.value)} />
-              <span style={{ color: '#9ca3af', fontSize: '18px' }}>👤</span>
-            </div>
-            <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
-              <input type="password" placeholder="••••••••" className="login-input" value={claveGlobal} onChange={(e) => setClaveGlobal(e.target.value)} />
-              <span style={{ color: '#9ca3af', fontSize: '18px' }}>🔑</span>
-            </div>
-            {errorLoginGlobal && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0', textAlign: 'left' }}>Credenciales incorrectas.</p>}
-            <button type="submit" className="login-btn" style={{ backgroundColor: '#1f2937' }}>INGRESAR AL SISTEMA</button>
-          </form>
-        </div>
-      </div>
-    )
-  }
-
   // ==========================================
-  // VISTA 5: ADMIN DASHBOARD
+  // VISTA 5: ADMIN DASHBOARD (MODO RESPONSIVO APLICADO)
   // ==========================================
   if (vistaAdmin) {
     const { enRiesgo, cuadroHonor } = calcularMetricas();
@@ -1124,16 +1137,16 @@ function App() {
         {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos por llenar'}</h4></div></div>)}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: '#f4f6f8' }}>
+        <div className="dashboard-layout">
           
-          <div style={{ width: '280px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+          <div className="sidebar">
             <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb', textAlign: 'center' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '40px', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
               <h1 style={{ margin: 0, fontSize: '18px', color: '#111827' }}>Admin Panel</h1>
               <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#6b7280' }}>Centro de Operaciones</p>
             </div>
             
-            <div style={{ padding: '20px 16px', flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+            <div className="sidebar-menu">
               <button className={`admin-menu-btn ${adminTab === 'reportes' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('reportes')}><span style={{ fontSize: '18px' }}>📈</span> Reportes Alumnos</button>
               <button className={`admin-menu-btn ${adminTab === 'directorio_alumnos' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('directorio_alumnos')}><span style={{ fontSize: '18px' }}>👥</span> Directorio Alumnos</button>
               <button className={`admin-menu-btn ${adminTab === 'rendimiento' ? 'active' : 'inactive'}`} onClick={() => setAdminTab('rendimiento')}><span style={{ fontSize: '18px' }}>👨‍🏫</span> Rendimiento Docente</button>
@@ -1158,7 +1171,7 @@ function App() {
             </div>
           </div>
 
-          <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+          <div className="main-content">
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
               {/* MÁQUINA DEL TIEMPO (IMPORTADOR) */}
@@ -1172,7 +1185,7 @@ function App() {
                     </p>
 
                     <form onSubmit={handleProcesarImportacion} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
+                      <div className="grid-resp-2" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                         <div>
                           <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>1. Selecciona la Clase</label>
                           <select value={claseImportar} onChange={(e) => setClaseImportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb' }}>
@@ -1249,7 +1262,7 @@ function App() {
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                     <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#111827', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🔍 Buscador y Exportación</h2>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
-                      <div style={{ display: 'flex', gap: '10px', flex: '1 1 auto', flexWrap: 'wrap' }}>
+                      <div className="mobile-stack" style={{ display: 'flex', gap: '10px', flex: '1 1 auto', flexWrap: 'wrap' }}>
                         <select value={tipoBusqueda} onChange={(e) => {setTipoBusqueda(e.target.value); setTerminoBusqueda('');}} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontWeight: '500', color: '#374151', cursor: 'pointer' }}>
                           <option value="alumno">👤 Alumno</option>
                           <option value="clase">📚 Grupo / Empresa</option>
@@ -1267,14 +1280,14 @@ function App() {
                           </optgroup>
                         </select>
                       </div>
-                      <div style={{ display: 'flex', gap: '10px' }}>
+                      <div className="mobile-stack" style={{ display: 'flex', gap: '10px' }}>
                         <button onClick={() => generarPDFAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer' }}>📄 PDF</button>
                         <button onClick={() => generarExcelAdmin(resultadosBusqueda)} className="btn-flotante" style={{ padding: '12px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', cursor: 'pointer' }}>📊 EXCEL</button>
                       </div>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       {terminoBusqueda.trim() === '' ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '10px' }}>
+                        <div className="grid-resp-2" style={{ marginTop: '10px' }}>
                           <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '12px', padding: '20px' }}>
                             <h3 style={{ margin: '0 0 15px 0', color: '#be123c', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚨 Alerta de Riesgo (Faltas)</h3>
                             {enRiesgo.length === 0 ? <p style={{ fontSize: '13px', color: '#9f1239' }}>No hay alumnos con faltas.</p> : (
@@ -1351,7 +1364,7 @@ function App() {
               {/* DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="grid-resp-2">
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
                       <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
@@ -1548,7 +1561,7 @@ function App() {
                     </div>
                   )}
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="grid-resp-2">
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '17px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>🎓 Registrar Mensualidad de Alumno</h2>
                       <form onSubmit={handleAgregarPago} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -1616,7 +1629,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="grid-resp-2">
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Mensualidades</h2>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
@@ -1670,7 +1683,7 @@ function App() {
                       {editandoClaseId ? '✏️ Editando Clase' : '➕ Crear Nuevo Grupo o Clase'}
                     </h2>
                     <form onSubmit={handleAgregarClase} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                      <div style={{ display: 'flex', gap: '15px' }}>
+                      <div className="mobile-stack" style={{ display: 'flex', gap: '15px' }}>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nombre identificador</label>
                           <input type="text" placeholder="Ej: Grupo Ana" value={nuevaClaseTitulo} onChange={(e) => setNuevaClaseTitulo(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1680,7 +1693,7 @@ function App() {
                           <input type="text" placeholder="Ej: Preparación B2" value={nuevaClaseCurso} onChange={(e) => setNuevaClaseCurso(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '15px' }}>
+                      <div className="mobile-stack" style={{ display: 'flex', gap: '15px' }}>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Días de clase</label>
                           <input type="text" placeholder="Ej: Lunes y Miércoles" value={nuevaClaseDias} onChange={(e) => setNuevaClaseDias(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1690,7 +1703,7 @@ function App() {
                           <input type="text" placeholder="Ej: 20:00 - 21:30" value={nuevaClaseHorario} onChange={(e) => setNuevaClaseHorario(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '15px' }}>
+                      <div className="mobile-stack" style={{ display: 'flex', gap: '15px' }}>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Tarifa por Hora (S/.)</label>
                           <input type="number" placeholder="Ej: 30" value={nuevaClaseTarifa} onChange={(e) => setNuevaClaseTarifa(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1730,7 +1743,7 @@ function App() {
                         </div>
                       </div>
                       
-                      <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                      <div className="mobile-stack" style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                         <button type="submit" className="btn-flotante" style={{ flex: 1, padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: editandoClaseId ? '#10b981' : '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer' }}>
                           {editandoClaseId ? 'Actualizar Datos de Clase' : 'Crear y Asignar Clase'}
                         </button>
@@ -1774,7 +1787,7 @@ function App() {
               {/* PROFESORES */}
               {adminTab === 'profesores' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="grid-resp-2">
                     
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Docente</h2>
@@ -1846,7 +1859,6 @@ function App() {
     }
     const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
 
-    // EL EXORCISMO APLICADO AL PROFESOR: Solo filtra estudiantes activos reales.
     const misClasesProfesor = clasesFirebase.filter(c => c.profesorId === profesorSeleccionado.id);
     const misAlumnos = Array.from(new Set(misClasesProfesor.flatMap(c => c.estudiantes || [])))
       .filter(a => todosLosAlumnos.includes(a))
@@ -1943,8 +1955,8 @@ function App() {
           </>
         )}
 
-        <div style={{ display: 'flex', height: '100vh', backgroundColor: '#f4f6f8' }}>
-          <div style={{ width: '300px', backgroundColor: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column' }}>
+        <div className="dashboard-layout">
+          <div className="sidebar-prof">
             <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb' }}>
               <button onClick={handleCerrarSesionProfesor} className="btn-flotante" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', marginLeft: '-10px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '5px' }}>← Cerrar Sesión</button>
               <div style={{ marginBottom: '15px', textAlign: 'left' }}>
@@ -1952,12 +1964,12 @@ function App() {
                 <div><h2 style={{ margin: '0 0 2px 0', fontSize: '18px', color: '#111827' }}>Mis Clases</h2><p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Cursos asignados</p></div>
               </div>
             </div>
-            <div style={{ padding: '16px 12px', overflowY: 'auto', flex: 1 }}>
+            <div className="sidebar-menu">
               {misClases.length === 0 ? (
                 <p style={{ color: '#9ca3af', textAlign: 'center', fontSize: '13px', marginTop: '20px' }}>No tienes clases asignadas aún.</p>
               ) : (
                 misClases.map((clase) => (
-                  <div key={clase.id} onClick={() => setClaseSeleccionada(clase)} className="btn-flotante" style={{ padding: '12px 16px', borderRadius: '12px', cursor: 'pointer', marginBottom: '8px', backgroundColor: claseSeleccionada?.id === clase.id ? '#eff6ff' : 'transparent', border: claseSeleccionada?.id === clase.id ? '1px solid #bfdbfe' : '1px solid transparent', textAlign: 'center' }}>
+                  <div key={clase.id} onClick={() => setClaseSeleccionada(clase)} className="btn-flotante admin-menu-btn" style={{ padding: '12px 16px', borderRadius: '12px', cursor: 'pointer', marginBottom: '8px', backgroundColor: claseSeleccionada?.id === clase.id ? '#eff6ff' : 'transparent', border: claseSeleccionada?.id === clase.id ? '1px solid #bfdbfe' : '1px solid transparent', textAlign: 'left', display: 'block' }}>
                     <h4 style={{ margin: 0, color: claseSeleccionada?.id === clase.id ? '#1d4ed8' : '#374151', fontSize: '14px' }}>{clase.titulo}</h4>
                     <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6b7280' }}>{(clase.estudiantes||[]).length} alumno(s) • {clase.curso}</p>
                   </div>
@@ -1970,11 +1982,11 @@ function App() {
             </div>
           </div>
 
-          <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto' }}>
+          <div className="main-content">
             {claseSeleccionada ? (
               <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', maxWidth: '900px', margin: '0 auto' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div className="mobile-stack" style={{ display: 'flex', flexDirection: 'column', gap: '15px', borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
                     <div style={{ flex: 1 }}></div>
                     <div style={{ flex: 2, textAlign: 'center' }}>
                       <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>
@@ -1994,7 +2006,7 @@ function App() {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                     {editandoCurso ? (
                       <>
                         <input type="text" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} className="input-flotante" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', outline: 'none', fontSize: '13px', width: '200px' }} />
@@ -2014,12 +2026,11 @@ function App() {
                 <div style={{ marginBottom: '32px' }}>
                   <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>Desempeño Individual</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {/* EL EXORCISMO PARA EL PROFESOR: Solo renderiza alumnos validados */}
                     {(claseSeleccionada.estudiantes || []).filter(est => todosLosAlumnos.includes(est)).map((estudiante, index) => (
                       <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
                           <h4 style={{ margin: '0', color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'asistio'})} style={obtenerEstiloBoton(estudiante, 'asistio', '#86efac', '#dcfce7', '#166534')}>Asistió</button>
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'no-asistio'})} style={obtenerEstiloBoton(estudiante, 'no-asistio', '#fca5a5', '#fee2e2', '#991b1b')}>No asistió</button>
                             <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'reprogramo'})} style={obtenerEstiloBoton(estudiante, 'reprogramo', '#fcd34d', '#fef3c7', '#92400e')}>Reprogramó</button>
@@ -2055,7 +2066,7 @@ function App() {
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
+                <div className="mobile-stack" style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Fecha (Real)</label>
                     <input className="input-flotante" type="date" value={fechaClase} onChange={(e) => setFechaClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
@@ -2083,7 +2094,7 @@ function App() {
                 <div style={{ marginTop: '40px', borderTop: '2px dashed #e5e7eb', paddingTop: '30px' }}>
                   <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', textAlign: 'center' }}>📅 Registros Pasados de esta Clase</h3>
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '600px' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f3f4f6', color: '#374151' }}>
                           <th style={{ padding: '10px' }}>Fecha</th>
@@ -2096,7 +2107,6 @@ function App() {
                       <tbody>
                         {registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo).sort((a,b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha))).map((reg, idx) => {
                           const nombres = Object.keys(reg.asistencia || {});
-                          // EL EXORCISMO PARA EL HISTORIAL
                           const nombresReales = nombres.filter(n => todosLosAlumnos.includes(n));
                           return nombresReales.map((alum, subIdx) => {
                             const estado = reg.asistencia?.[alum]; 
@@ -2125,8 +2135,8 @@ function App() {
 
               </div>
             ) : (
-              <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
-                <h3>Selecciona una clase del panel izquierdo para comenzar</h3>
+              <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', padding: '20px', textAlign: 'center' }}>
+                <h3>Selecciona una clase del panel para comenzar</h3>
               </div>
             )}
           </div>
@@ -2169,21 +2179,21 @@ function App() {
           </>
         )}
 
-        <div style={{ position: 'absolute', top: '25px', left: '30px' }}>
-          <button onClick={() => {setAccesoGlobal(false); setModoIngreso('inicio')}} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>🚪 Salir a Inicio</button>
+        <div style={{ position: 'absolute', top: '20px', left: '20px' }}>
+          <button onClick={() => {setAccesoGlobal(false); setModoIngreso('inicio')}} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>🚪 Salir</button>
         </div>
-        <div style={{ position: 'absolute', top: '25px', right: '30px', display: 'flex', gap: '10px' }}>
+        <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '10px' }}>
           <button onClick={() => setMostrarModalAdmin(true)} className="btn-flotante" style={{ background: '#111827', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>⚙️ Admin Panel</button>
         </div>
-        <div style={{ marginTop: '20px', marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ marginTop: '40px', marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <img src="/boss_accredible.png" alt="Logo" style={{ width: '120px', height: 'auto', marginBottom: '15px' }} onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '30px' }}>Boss Language Center</h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '16px' }}>Selecciona tu perfil docente para iniciar clase</p>
+          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '28px', padding: '0 15px' }}>Boss Language Center</h1>
+          <p style={{ color: '#6b7280', margin: 0, fontSize: '15px' }}>Selecciona tu perfil docente para iniciar clase</p>
         </div>
         
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
           {profesores.filter(p => p.activo !== false).map((profesor) => (
-            <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion" style={{ backgroundColor: 'white' }}>
+            <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion" style={{ backgroundColor: 'white', margin: '0 15px' }}>
               <div className="avatar" style={{ backgroundColor: profesor.color }}>{(profesor.nombre||'?').charAt(0)}</div>
               <div className="textos" style={{ textAlign: 'left' }}>
                 <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre || 'Sin Nombre'}</h2>
