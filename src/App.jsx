@@ -60,7 +60,7 @@ function App() {
   const [nuevoAlumnoNombre, setNuevoAlumnoNombre] = useState('')
   const [nuevoAlumnoTipoDoc, setNuevoAlumnoTipoDoc] = useState('DNI')
   const [nuevoAlumnoNumDoc, setNuevoAlumnoNumDoc] = useState('')
-  const [nuevoAlumnoEmail, setNuevoAlumnoEmail] = useState('') // NUEVO CAMPO EMAIL
+  const [nuevoAlumnoEmail, setNuevoAlumnoEmail] = useState('')
   const [busquedaDirectorio, setBusquedaDirectorio] = useState('') 
 
   const [nuevaClaseTitulo, setNuevaClaseTitulo] = useState('')
@@ -106,7 +106,6 @@ function App() {
   const [editandoRegistroId, setEditandoRegistroId] = useState(null)
   const [editandoClaseId, setEditandoClaseId] = useState(null)
 
-  // NUEVOS ESTADOS PARA EDITAR ALUMNOS
   const [editandoAlumnoId, setEditandoAlumnoId] = useState(null)
   const [editAlumnoNombre, setEditAlumnoNombre] = useState('')
   const [editAlumnoTipoDoc, setEditAlumnoTipoDoc] = useState('DNI')
@@ -169,11 +168,10 @@ function App() {
     return fechaStr; 
   }
 
-  const todosLosAlumnos = Array.from(new Set([
-    ...alumnosFirebase.map(a => a.nombre || ''),
-    ...clasesFirebase.flatMap(c => c.estudiantes || [])
-  ])).filter(Boolean).sort();
-
+  // EL EXORCISMO 👻❌: Ahora la lista maestra de alumnos SOLO extrae datos de la base oficial de alumnos
+  // ignorando a cualquier fantasma que se haya quedado atrapado en el arreglo de una clase.
+  const todosLosAlumnos = alumnosFirebase.map(a => a.nombre).filter(Boolean).sort((a, b) => a.localeCompare(b));
+  
   const alumnosActivos = alumnosFirebase.filter(a => a.activo !== false).map(a => a.nombre).sort((a, b) => a.localeCompare(b));
 
   const getPromedio = (notasDato) => {
@@ -203,6 +201,7 @@ function App() {
     if (!textoImportar || !claseImportar || !profesorImportar || !alumnoImportar) {
       triggerError('Llena todos los campos obligatorios y pega los datos del Excel.'); return;
     }
+    
     if (alumnoImportar.length > 60) {
       triggerError('El nombre del alumno es muy largo. ¿Pegaste la tabla en la casilla equivocada?'); return;
     }
@@ -287,47 +286,33 @@ function App() {
     } catch (err) { triggerError("Error al guardar el examen. Revisa tu conexión."); }
   }
 
-  // ==========================================
-  // NUEVA FUNCION: ACTUALIZAR ALUMNO Y CASCADA
-  // ==========================================
   const handleActualizarAlumno = async (id, oldName) => {
     if(!editAlumnoNombre || !editAlumnoNumDoc) { triggerError("El nombre y el documento son obligatorios."); return; }
     try {
-      // 1. Actualizar en el directorio
       await updateDoc(doc(db, "alumnos", id), {
         nombre: editAlumnoNombre, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''
       });
       setAlumnosFirebase(prev => prev.map(a => a.id === id ? {...a, nombre: editAlumnoNombre, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''} : a));
 
-      // 2. MAGIA EN CASCADA: Si cambió de nombre, actualiza en todas las clases y registros viejos
       if (editAlumnoNombre !== oldName) {
-         // Actualizar Clases
          const clasesToUpdate = clasesFirebase.filter(c => (c.estudiantes||[]).includes(oldName));
          for (let c of clasesToUpdate) {
             const newEstudiantes = c.estudiantes.map(e => e === oldName ? editAlumnoNombre : e);
             await updateDoc(doc(db, "clases", c.id), { estudiantes: newEstudiantes });
          }
-         
-         // Actualizar Historial de Notas (RegistrosClases)
          const regsToUpdate = registrosFirebase.filter(r => r.asistencia && r.asistencia[oldName]);
          for (let r of regsToUpdate) {
              const newAsist = {...r.asistencia}; newAsist[editAlumnoNombre] = newAsist[oldName]; delete newAsist[oldName];
              const newNotas = {...(r.notas || {})}; if(newNotas[oldName]) { newNotas[editAlumnoNombre] = newNotas[oldName]; delete newNotas[oldName]; }
              const newObs = {...(r.observacionesIndividuales || {})}; if(newObs[oldName]) { newObs[editAlumnoNombre] = newObs[oldName]; delete newObs[oldName]; }
-             
              await updateDoc(doc(db, "registrosClases", r.id), { asistencia: newAsist, notas: newNotas, observacionesIndividuales: newObs });
          }
-         
-         // Recargar clases y registros para la UI
          const cSnap = await getDocs(collection(db, "clases")); setClasesFirebase(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
          const rSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       }
-
       setMensajeExito("¡Datos de alumno actualizados perfectamente! ✏️✅"); setTimeout(() => setMensajeExito(''), 4000);
       setEditandoAlumnoId(null);
-    } catch(err) {
-      triggerError("Error al guardar cambios de edición.");
-    }
+    } catch(err) { triggerError("Error al guardar cambios de edición."); }
   }
 
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
@@ -1363,14 +1348,13 @@ function App() {
                 </div>
               )}
 
-              {/* DIRECTORIO ALUMNOS (RENOVADO: AHORA INCLUYE EMAIL Y EDICION) */}
+              {/* DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    
-                    {/* COLUMNA IZQUIERDA: CREAR ALUMNO */}
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno</h2>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
+                      <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
                       <form onSubmit={handleAgregarAlumno} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nombre Completo</label>
@@ -1392,7 +1376,6 @@ function App() {
                             <input type="text" placeholder="Ej: 76543210" value={nuevoAlumnoNumDoc} onChange={(e) => setNuevoAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
                         </div>
-                        {/* NUEVO CAMPO: EMAIL */}
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Correo Electrónico (Opcional)</label>
                           <input type="email" placeholder="Ej: ana@correo.com" value={nuevoAlumnoEmail} onChange={(e) => setNuevoAlumnoEmail(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1401,7 +1384,6 @@ function App() {
                       </form>
                     </div>
 
-                    {/* COLUMNA DERECHA: DIRECTORIO CON EDICION */}
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '15px' }}>
                         <h2 style={{ margin: 0, fontSize: '20px', color: '#374151' }}>👥 Alumnos en Directorio</h2>
@@ -1412,7 +1394,6 @@ function App() {
                         {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
                           
                           editandoAlumnoId === alum.id ? (
-                            // MODO EDICIÓN
                             <div key={alum.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
                               <p style={{margin: '0 0 5px 0', fontSize: '13px', color: '#b45309', fontWeight: 'bold'}}>✏️ Editando Perfil</p>
                               <input type="text" value={editAlumnoNombre} onChange={e=>setEditAlumnoNombre(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', fontSize: '14px'}} placeholder="Nombre completo" />
@@ -1429,7 +1410,6 @@ function App() {
                               </div>
                             </div>
                           ) : (
-                            // MODO LECTURA NORMAL
                             <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
@@ -1437,7 +1417,6 @@ function App() {
                                 {alum.email && <span style={{ fontSize: '10px', color: '#3b82f6', marginTop: '2px' }}>📧 {alum.email}</span>}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                {/* BOTÓN LAPIZ */}
                                 <button onClick={() => {
                                   setEditandoAlumnoId(alum.id); setEditAlumnoNombre(alum.nombre); setEditAlumnoTipoDoc(alum.tipoDoc || 'DNI'); setEditAlumnoNumDoc(alum.numDoc); setEditAlumnoEmail(alum.email || '');
                                 }} style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '14px' }} title="Editar Alumno">✏️</button>
@@ -1777,7 +1756,8 @@ function App() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <button onClick={() => {
-                                setNuevaClaseTitulo(clase.titulo); setNuevaClaseCurso(clase.curso); setNuevaClaseTarifa(clase.tarifa); setNuevaClaseDias(clase.dias); setNuevaClaseHorario(clase.horario); setNuevaClaseProfesorId(clase.profesorId); setEstudiantesSeleccionados(clase.estudiantes || []); setEditandoClaseId(clase.id);
+                                setNuevaClaseTitulo(clase.titulo); setNuevaClaseCurso(clase.curso); setNuevaClaseTarifa(clase.tarifa); setNuevaClaseDias(clase.dias); setNuevaClaseHorario(clase.horario); setNuevaClaseProfesorId(clase.profesorId); 
+                                setEstudiantesSeleccionados((clase.estudiantes || []).filter(est => todosLosAlumnos.includes(est))); setEditandoClaseId(clase.id);
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
                             }} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px', cursor: 'pointer', fontSize: '12px' }} title="Editar Alumnos o Datos">✏️</button>
 
@@ -1866,9 +1846,11 @@ function App() {
     }
     const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
 
-    // NUEVO FILTRO PARA EXAMEN: Solo alumnos de ESTE profesor
+    // EL EXORCISMO APLICADO AL PROFESOR: Solo filtra estudiantes activos reales.
     const misClasesProfesor = clasesFirebase.filter(c => c.profesorId === profesorSeleccionado.id);
-    const misAlumnos = Array.from(new Set(misClasesProfesor.flatMap(c => c.estudiantes || []))).sort();
+    const misAlumnos = Array.from(new Set(misClasesProfesor.flatMap(c => c.estudiantes || [])))
+      .filter(a => todosLosAlumnos.includes(a))
+      .sort((a, b) => a.localeCompare(b));
 
     return (
       <>
@@ -2013,15 +1995,27 @@ function App() {
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
-                    <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
+                    {editandoCurso ? (
+                      <>
+                        <input type="text" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} className="input-flotante" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', outline: 'none', fontSize: '13px', width: '200px' }} />
+                        <button onClick={handleActualizarCurso} style={{ background: '#10b981', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Guardar</button>
+                        <button onClick={() => setEditandoCurso(false)} style={{ background: '#ef4444', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Cancelar</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
+                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }}>✏️</button>
+                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 <div style={{ marginBottom: '32px' }}>
                   <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>Desempeño Individual</h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {(claseSeleccionada.estudiantes || []).map((estudiante, index) => (
+                    {/* EL EXORCISMO PARA EL PROFESOR: Solo renderiza alumnos validados */}
+                    {(claseSeleccionada.estudiantes || []).filter(est => todosLosAlumnos.includes(est)).map((estudiante, index) => (
                       <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
                           <h4 style={{ margin: '0', color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
@@ -2102,7 +2096,9 @@ function App() {
                       <tbody>
                         {registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo).sort((a,b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha))).map((reg, idx) => {
                           const nombres = Object.keys(reg.asistencia || {});
-                          return nombres.map((alum, subIdx) => {
+                          // EL EXORCISMO PARA EL HISTORIAL
+                          const nombresReales = nombres.filter(n => todosLosAlumnos.includes(n));
+                          return nombresReales.map((alum, subIdx) => {
                             const estado = reg.asistencia?.[alum]; 
                             const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                             const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
@@ -2113,7 +2109,6 @@ function App() {
                                   <td style={{ padding: '10px', color: colorEstado, fontWeight: 'bold' }}>{estado.replace('-', ' ')}</td>
                                   <td style={{ padding: '10px' }}>{notaCol}</td>
                                   <td style={{ padding: '10px', textAlign: 'center' }}>
-                                    {/* BOTÓN EDITAR EN PROFESOR */}
                                     <button onClick={() => {
                                         setFechaClase(reg.fecha || ''); setHorasClase(reg.horas || ''); setAsistencia(reg.asistencia || {}); setNotas(reg.notas || {}); setObsIndividual(reg.observacionesIndividuales || {}); setObsGeneral(reg.observacionGeneral || ''); setEditandoRegistroId(reg.id);
                                         window.scrollTo({ top: 0, behavior: 'smooth' });
