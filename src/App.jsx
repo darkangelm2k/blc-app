@@ -120,7 +120,7 @@ function App() {
   }
 
   const formatMesTexto = (yyyy_mm) => {
-      const [y, m] = yyyy_mm.split('-');
+      const [y, m] = String(yyyy_mm).split('-');
       const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
       return `${nombresMeses[parseInt(m)-1]} ${y}`;
   }
@@ -132,8 +132,8 @@ function App() {
 
   // AUTO-FORMATEO DE NOMBRES (Mejora: Title Case)
   const formatearNombre = (str) => {
-    if (!str) return '';
-    return str.trim().toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    if (!str || typeof str !== 'string') return '';
+    return str.trim().toLowerCase().split(' ').map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : '').join(' ');
   }
 
   useEffect(() => {
@@ -163,8 +163,9 @@ function App() {
     cargarDatos();
   }, [mensajeExito]); 
 
+  // BLINDAJE DE SEGURIDAD 1: Fechas siempre procesadas correctamente
   const parseFechaUniversal = (fechaStr) => {
-    if(!fechaStr) return '';
+    if(!fechaStr || typeof fechaStr !== 'string') return '';
     if(fechaStr.includes('/')) {
        const parts = fechaStr.split('/');
        if(parts.length === 3) {
@@ -174,8 +175,16 @@ function App() {
     return fechaStr; 
   }
 
-  const todosLosAlumnos = alumnosFirebase.map(a => a.nombre).filter(Boolean).sort((a, b) => a.localeCompare(b));
-  const alumnosActivos = alumnosFirebase.filter(a => a.activo !== false).map(a => a.nombre).sort((a, b) => a.localeCompare(b));
+  // BLINDAJE DE SEGURIDAD 2: Filtrado forzado de cadenas de texto
+  const todosLosAlumnos = alumnosFirebase
+    .map(a => a.nombre)
+    .filter(Boolean)
+    .sort((a, b) => String(a).localeCompare(String(b)));
+  
+  const alumnosActivos = alumnosFirebase
+    .filter(a => a.activo !== false && a.nombre)
+    .map(a => a.nombre)
+    .sort((a, b) => String(a).localeCompare(String(b)));
 
   const getPromedio = (notasDato) => {
     if (!notasDato) return '--';
@@ -218,9 +227,9 @@ function App() {
       const tarifaClase = claseRef ? claseRef.tarifa : 0;
       const profesorName = profesores.find(p => p.id === profesorImportar)?.nombre || 'Desconocido';
       
-      const nombreAlumno = formatearNombre(alumnoImportar); // APLICAR FORMATO
+      const nombreAlumno = formatearNombre(alumnoImportar);
 
-      let alumnoExiste = alumnosFirebase.some(a => (a.nombre||'').toLowerCase() === nombreAlumno.toLowerCase());
+      let alumnoExiste = alumnosFirebase.some(a => String(a.nombre||'').toLowerCase() === nombreAlumno.toLowerCase());
       if (!alumnoExiste) {
         await addDoc(collection(db, "alumnos"), { nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', email: '', fechaRegistro: new Date().toISOString(), activo: true });
         nuevosAlumnosRegistrados++; alumnosFirebase.push({nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', email: '', activo: true}); 
@@ -240,7 +249,7 @@ function App() {
         const columnas = filaText.split('\t'); 
         if (columnas.length < 5) continue; 
 
-        let fechaCruda = columnas[0].trim();
+        let fechaCruda = String(columnas[0]).trim();
         if (!fechaCruda.match(/\d{2,4}[-/]\d{1,2}[-/]\d{1,4}/)) continue;
 
         let fecha = fechaCruda.split(' ')[0]; 
@@ -249,7 +258,7 @@ function App() {
             if(parts.length === 3) fecha = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
         }
         
-        const getNota = (val) => { const v = (val||'').trim(); return (v === '' || v.toLowerCase() === 'nan' || v === '-') ? '' : v; };
+        const getNota = (val) => { const v = String(val||'').trim(); return (v === '' || v.toLowerCase() === 'nan' || v === '-') ? '' : v; };
         let oral = getNota(columnas[1]); let grammar = getNota(columnas[2]); let reading = getNota(columnas[3]); let listening = getNota(columnas[4]); let writing = getNota(columnas[5]);
         
         let asist = 'asistio'; 
@@ -266,8 +275,8 @@ function App() {
           registrosGuardados++;
         }
       }
-      setTextoImportar(''); setAlumnoImportar(''); setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} alumnos creados, ${registrosGuardados} clases guardadas.`); setTimeout(() => setMensajeExito(''), 6000);
-      const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
+      setTextoImportar(''); setAlumnoImportar(''); setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} creados, ${registrosGuardados} guardados.`); setTimeout(() => setMensajeExito(''), 6000);
+      const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||''))));
       const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { triggerError('Error al importar. Revisa el formato de los datos copiados.'); } finally { setProcesandoImportacion(false); }
   }
@@ -289,10 +298,11 @@ function App() {
     } catch (err) { triggerError("Error al guardar el examen. Revisa tu conexión."); }
   }
 
+  // CASCADA DE EDICIÓN (SINCRONIZACIÓN PERFECTA)
   const handleActualizarAlumno = async (id, oldName) => {
     if(!editAlumnoNombre || !editAlumnoNumDoc) { triggerError("El nombre y el documento son obligatorios."); return; }
     
-    const nombreLimpio = formatearNombre(editAlumnoNombre); // APLICAR FORMATO
+    const nombreLimpio = formatearNombre(editAlumnoNombre); 
 
     try {
       await updateDoc(doc(db, "alumnos", id), {
@@ -343,10 +353,10 @@ function App() {
     const startY = await agregarEncabezadoPDF(doc, "Comprobante de Pago", [`Centro: Boss Language Center SAC`, `RUC: 20603806795`, `Fecha de Emisión: ${new Date().toLocaleDateString()}`]);
     doc.setFontSize(14); doc.setTextColor(17, 24, 39); doc.text("Detalles de la Operación:", 14, startY + 10);
     doc.setFontSize(12); doc.setTextColor(75, 85, 99);
-    doc.text(`Alumno: ${(pago.alumno || 'Alumno').toUpperCase()}`, 14, startY + 20); doc.text(`Mes Cancelado: ${pago.mes || '--'}`, 14, startY + 28); doc.text(`Fecha de Registro en Sistema: ${pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}`, 14, startY + 36);
+    doc.text(`Alumno: ${String(pago.alumno || 'Alumno').toUpperCase()}`, 14, startY + 20); doc.text(`Mes Cancelado: ${pago.mes || '--'}`, 14, startY + 28); doc.text(`Fecha de Registro en Sistema: ${pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}`, 14, startY + 36);
     doc.setFontSize(18); doc.setTextColor(5, 150, 105); doc.text(`Total Pagado: S/. ${Number(pago.monto || 0).toFixed(2)}`, 14, startY + 55);
     doc.setFontSize(10); doc.setTextColor(156, 163, 175); doc.text("Documento interno y oficial de Boss Language Center SAC.", 14, startY + 75);
-    doc.save(`Recibo_BLC_${pago.alumno || 'Pago'}_${pago.mes || ''}.pdf`);
+    doc.save(`Recibo_BLC_${String(pago.alumno || 'Pago').replace(/\s/g, '_')}_${pago.mes || ''}.pdf`);
   }
 
   const generarPDFReporteAlumnoUnico = async () => {
@@ -359,7 +369,7 @@ function App() {
           return f.startsWith(mesFiltroAlumno);
         });
     }
-    registrosAlumno.sort((a,b) => new Date(parseFechaUniversal(a.fecha)) - new Date(parseFechaUniversal(b.fecha)));
+    registrosAlumno.sort((a,b) => (new Date(parseFechaUniversal(a.fecha)).getTime() || 0) - (new Date(parseFechaUniversal(b.fecha)).getTime() || 0));
     
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
     registrosAlumno.forEach(reg => {
@@ -375,26 +385,18 @@ function App() {
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
     const periodoStr = mesFiltroAlumno === 'todo' ? 'Historial Completo' : mesFiltroAlumno;
 
-    const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [`Alumno: ${(alumnoSeleccionado || '').toUpperCase()}`, `Periodo Evaluado: ${periodoStr}`, `Promedio Global: ${promedioGlobal}`, `Asistencia Total: ${asistenciaPorcentaje}%`, `Generado: ${new Date().toLocaleDateString()}`]);
+    const startY = await agregarEncabezadoPDF(doc, "Libreta de Notas Oficial", [`Alumno: ${String(alumnoSeleccionado || '').toUpperCase()}`, `Periodo Evaluado: ${periodoStr}`, `Promedio Global: ${promedioGlobal}`, `Asistencia Total: ${asistenciaPorcentaje}%`, `Generado: ${new Date().toLocaleDateString()}`]);
 
     const tableData = [];
     registrosAlumno.forEach(reg => {
         const estado = reg.asistencia[alumnoSeleccionado];
         const observacion = reg.observacionesIndividuales?.[alumnoSeleccionado] || reg.observacionGeneral || '--';
         const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alumnoSeleccionado]) : '--';
-        tableData.push([reg.fecha || '--', reg.clase || '--', (estado || '--').replace('-', ' '), notaCol, observacion]);
+        tableData.push([reg.fecha || '--', reg.clase || '--', String(estado || '--').replace('-', ' '), notaCol, observacion]);
     });
 
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
-    doc.save(`Libreta_${(alumnoSeleccionado || 'Alumno').replace(' ', '_')}.pdf`);
-  }
-
-  const descargarRespaldoNuclear = () => {
-    const backupData = { fechaGeneracion: new Date().toISOString(), centro: "Boss Language Center SAC", baseDeDatos: { profesores: profesores, alumnos: alumnosFirebase, clases: clasesFirebase, registros_academicos: registrosFirebase, pagos_ingresos: pagosFirebase, movimientos_financieros: movimientosExtra }};
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;
-    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    setMensajeExito('¡Backup Nuclear descargado con éxito! 💽✅'); setTimeout(() => setMensajeExito(''), 4000);
+    doc.save(`Libreta_${String(alumnoSeleccionado || 'Alumno').replace(/\s/g, '_')}.pdf`);
   }
 
   const generarPDFPlanilla = async () => {
@@ -415,7 +417,7 @@ function App() {
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Horas Impartidas', 'Tarifa/Hora', 'Subtotal']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 9, cellPadding: 3 }});
     doc.setFontSize(16); doc.setTextColor(5, 150, 105); doc.text(`Total a Facturar: S/. ${totalPagar.toFixed(2)}`, 14, doc.lastAutoTable.finalY + 15);
     doc.setFontSize(10); doc.setTextColor(75, 85, 99); doc.text("Instrucciones: Emitir el Recibo por Honorarios a Boss Language Center SAC (RUC: 20603806795).", 14, doc.lastAutoTable.finalY + 25);
-    doc.save(`Planilla_${profesorSeleccionado?.nombre || 'Docente'}_${nombreMes.replace(' ', '_')}.pdf`);
+    doc.save(`Planilla_${String(profesorSeleccionado?.nombre || 'Docente').replace(/\s/g, '_')}_${nombreMes.replace(/\s/g, '_')}.pdf`);
     setMostrarPlanilla(false); setMensajeExito('¡Planilla generada exitosamente! 💰✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
@@ -428,7 +430,7 @@ function App() {
       if(mesExportar === "todo") return true;
       const f = parseFechaUniversal(reg.fecha);
       return f.startsWith(mesExportar);
-    }).sort((a, b) => new Date(parseFechaUniversal(a.fecha)) - new Date(parseFechaUniversal(b.fecha)));
+    }).sort((a, b) => (new Date(parseFechaUniversal(a.fecha)).getTime() || 0) - (new Date(parseFechaUniversal(b.fecha)).getTime() || 0));
     
     const tableData = [];
     registrosFiltrados.forEach(reg => {
@@ -437,11 +439,11 @@ function App() {
         const estado = reg.asistencia[est];
         const observacion = reg.observacionesIndividuales?.[est] || reg.observacionGeneral || '--';
         const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[est]) : '--';
-        tableData.push([reg.fecha || '--', est, (estado || '--').replace('-', ' '), notaCol, observacion]);
+        tableData.push([reg.fecha || '--', est, String(estado || '--').replace('-', ' '), notaCol, observacion]);
       });
     });
     autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
-    doc.save(`Reporte_${claseSeleccionada?.titulo || 'Grupo'}.pdf`);
+    doc.save(`Reporte_${String(claseSeleccionada?.titulo || 'Grupo').replace(/\s/g, '_')}.pdf`);
     setMostrarModalExportar(false); setMensajeExito('¡Reporte exportado con éxito! 📄✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
@@ -452,10 +454,10 @@ function App() {
     let tituloPDF = ""; let subtitulos = [];
 
     if (tipoBusqueda === 'alumno') {
-      tituloPDF = "Expediente Académico del Alumno"; let nombreMayus = terminoBusqueda ? terminoBusqueda.toUpperCase() : 'General';
+      tituloPDF = "Expediente Académico del Alumno"; let nombreMayus = terminoBusqueda ? String(terminoBusqueda).toUpperCase() : 'General';
       subtitulos = [`Alumno: ${nombreMayus}`, `Generado por: Coordinación Académica`, `Periodo: ${periodoStr}`];
     } else if (tipoBusqueda === 'profesor') {
-      tituloPDF = "Expediente del Profesor"; let profMayus = terminoBusqueda ? terminoBusqueda.toUpperCase() : 'General';
+      tituloPDF = "Expediente del Profesor"; let profMayus = terminoBusqueda ? String(terminoBusqueda).toUpperCase() : 'General';
       subtitulos = [`Profesor: ${profMayus}`, `Generado por: Coordinación Académica`, `Periodo: ${periodoStr}`];
     } else {
       tituloPDF = "Reporte Académico de Grupo";
@@ -468,19 +470,19 @@ function App() {
     resultados.forEach(reg => {
       const nombres = Object.keys(reg.asistencia || {});
       let alumnosAMostrar = nombres;
-      if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
-         const match = nombres.find(n => (n || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
+      if (tipoBusqueda === 'alumno' && String(terminoBusqueda).trim() !== '') {
+         const match = nombres.find(n => String(n || '').toLowerCase().includes(String(terminoBusqueda).toLowerCase()));
          if (match) alumnosAMostrar = [match];
       }
       alumnosAMostrar.forEach(alum => {
          const estado = reg.asistencia?.[alum];
          const observacion = reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--';
          const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
-         tableData.push([reg.fecha || '--', alum || '--', (estado || '--').replace('-', ' '), notaCol, observacion]);
+         tableData.push([reg.fecha || '--', alum || '--', String(estado || '--').replace('-', ' '), notaCol, observacion]);
       });
     });
     autoTable(doc, { startY: startY, head: [['Fecha', 'Alumno', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 } });
-    doc.save(`Reporte_Admin_${terminoBusqueda || 'BLC'}.pdf`);
+    doc.save(`Reporte_Admin_${String(terminoBusqueda || 'BLC').replace(/\s/g, '_')}.pdf`);
     setMensajeExito('¡Reporte exportado con formato estándar! 📊✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
@@ -490,13 +492,13 @@ function App() {
     resultados.forEach(reg => {
       const nombres = Object.keys(reg.asistencia || {});
       let alumnosAMostrar = nombres;
-      if (tipoBusqueda === 'alumno' && terminoBusqueda.trim() !== '') {
-         const match = nombres.find(n => (n || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
+      if (tipoBusqueda === 'alumno' && String(terminoBusqueda).trim() !== '') {
+         const match = nombres.find(n => String(n || '').toLowerCase().includes(String(terminoBusqueda).toLowerCase()));
          if (match) alumnosAMostrar = [match];
       }
       alumnosAMostrar.forEach(alum => {
-         const estado = (reg.asistencia?.[alum] || '--').replace('-', ' ');
-         const obs = (reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); 
+         const estado = String(reg.asistencia?.[alum] || '--').replace('-', ' ');
+         const obs = String(reg.observacionesIndividuales?.[alum] || reg.observacionGeneral || '--').replace(/,/g, ' '); 
          const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase);
          const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
          
@@ -517,7 +519,7 @@ function App() {
     });
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
     const link = document.createElement("a"); const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url); link.setAttribute("download", `Reporte_Admin_${terminoBusqueda || 'BLC'}.csv`);
+    link.setAttribute("href", url); link.setAttribute("download", `Reporte_Admin_${String(terminoBusqueda || 'BLC').replace(/\s/g, '_')}.csv`);
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
     setMensajeExito('¡Excel exportado correctamente! 📈✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
@@ -602,22 +604,23 @@ function App() {
     return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
   }
 
+  // BUSCADOR MEJORADO Y ANTI-ERRORES DE FORMATO
   const resultadosBusqueda = registrosFirebase.filter(reg => {
-    if (terminoBusqueda.trim() === '') return false;
+    if (String(terminoBusqueda).trim() === '') return false;
     
     if (tipoBusqueda === 'alumno') {
       const nombresAlumnos = Object.keys(reg.asistencia || {});
-      const alumnoEncontrado = nombresAlumnos.find(nombre => (nombre || '').toLowerCase().includes(terminoBusqueda.toLowerCase()));
+      const alumnoEncontrado = nombresAlumnos.find(nombre => String(nombre || '').toLowerCase().includes(String(terminoBusqueda).toLowerCase()));
       if (!alumnoEncontrado) return false;
     } else if (tipoBusqueda === 'clase') {
-      const matchClase = reg.clase && reg.clase.toLowerCase().includes(terminoBusqueda.toLowerCase());
+      const matchClase = reg.clase && String(reg.clase).toLowerCase().includes(String(terminoBusqueda).toLowerCase());
       if (!matchClase) return false;
     } else if (tipoBusqueda === 'profesor') {
-      const matchProfesor = reg.profesor && reg.profesor.toLowerCase().includes(terminoBusqueda.toLowerCase());
+      const matchProfesor = reg.profesor && String(reg.profesor).toLowerCase().includes(String(terminoBusqueda).toLowerCase());
       if (!matchProfesor) return false;
     } else if (tipoBusqueda === 'fecha') {
-      const term = terminoBusqueda.trim().toLowerCase().replace(/\s/g, '');
-      const f1 = (reg.fecha || '').toLowerCase().replace(/\s/g, '');
+      const term = String(terminoBusqueda).trim().toLowerCase().replace(/\s/g, '');
+      const f1 = String(reg.fecha || '').toLowerCase().replace(/\s/g, '');
       const f2 = parseFechaUniversal(reg.fecha).toLowerCase().replace(/\s/g, '');
       if (!f1.includes(term) && !f2.includes(term)) return false;
     }
@@ -628,7 +631,7 @@ function App() {
       return f.startsWith(mesFiltroBusqueda); 
     }
     return true;
-  }).sort((a, b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha)));
+  }).sort((a, b) => (new Date(parseFechaUniversal(b.fecha)).getTime() || 0) - (new Date(parseFechaUniversal(a.fecha)).getTime() || 0));
 
   const misClases = profesorSeleccionado ? clasesFirebase.filter(clase => clase.profesorId === profesorSeleccionado.id && !clase.archivada) : [];
 
@@ -646,9 +649,8 @@ function App() {
     }
   }
 
-  // MEJORA: SEGURO ANTI-DESASTRES PARA ELIMINAR CLASE
   const handleEliminarClase = async (id) => {
-    const confirmacion = window.prompt('⚠️ PELIGRO: Para borrar esta clase y desconectar a sus alumnos, escribe la palabra ELIMINAR');
+    const confirmacion = window.prompt('⚠️ PELIGRO: Para borrar esta clase y desconectar a sus alumnos, escribe la palabra ELIMINAR en mayúsculas:');
     if (confirmacion === 'ELIMINAR') {
       await deleteDoc(doc(db, "clases", id)); setClasesFirebase(clasesFirebase.filter(c => c.id !== id));
       setMensajeExito('Clase eliminada permanentemente 🗑️'); setTimeout(() => setMensajeExito(''), 3000);
@@ -708,7 +710,7 @@ function App() {
     const existeDoc = alumnosFirebase.some(a => a.numDoc === nuevoAlumnoNumDoc);
     if (existeDoc) { triggerError('Ese documento ya está registrado. Usa otro.'); return; }
     
-    const nombreLimpio = formatearNombre(nuevoAlumnoNombre); // APLICAR FORMATO
+    const nombreLimpio = formatearNombre(nuevoAlumnoNombre); 
 
     try {
       await addDoc(collection(db, "alumnos"), { nombre: nombreLimpio, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, email: nuevoAlumnoEmail || '', fechaRegistro: new Date().toISOString(), activo: true });
@@ -791,7 +793,7 @@ function App() {
 
   const handleLoginAlumno = (e) => {
     e.preventDefault();
-    const alumnoEncontrado = alumnosFirebase.find(a => a.tipoDoc === loginAlumnoTipoDoc && a.numDoc === loginAlumnoNumDoc);
+    const alumnoEncontrado = alumnosFirebase.find(a => String(a.tipoDoc) === String(loginAlumnoTipoDoc) && String(a.numDoc) === String(loginAlumnoNumDoc));
     if(alumnoEncontrado) {
       if (alumnoEncontrado.activo === false) { triggerError("Tu usuario ha sido dado de baja. Comunícate con administración."); return; }
       setAlumnoSeleccionado(alumnoEncontrado.nombre); setModoIngreso('inicio'); setLoginAlumnoNumDoc(''); setErrorLoginAlumno(false);
@@ -837,7 +839,7 @@ function App() {
   }
 
   // ==========================================
-  // ESTILOS GLOBALES & MEDIA QUERIES (Mejora: Modo App Móvil)
+  // ESTILOS GLOBALES
   // ==========================================
   const estilosGlobales = (
     <style>{`
@@ -867,7 +869,6 @@ function App() {
       .big-btn-home { padding: 20px 30px; border-radius: 16px; font-size: 18px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 10px; transition: all 0.3s ease; border: none; width: 250px; }
       .big-btn-home:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
       
-      /* Clases Estructurales para Modo Responsivo */
       .dashboard-layout { display: flex; height: 100vh; overflow: hidden; background-color: #f4f6f8; }
       .sidebar { width: 280px; background-color: white; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; }
       .sidebar-prof { width: 300px; background-color: white; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; }
@@ -1080,14 +1081,14 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {registrosAlumno.sort((a,b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha))).map((reg, idx) => {
+                    {registrosAlumno.sort((a,b) => (new Date(parseFechaUniversal(b.fecha)).getTime()||0) - (new Date(parseFechaUniversal(a.fecha)).getTime()||0)).map((reg, idx) => {
                       const estado = reg.asistencia[alumnoSeleccionado];
                       const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
                       const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alumnoSeleccionado]) : '--';
                       return (
                         <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
                           <td style={{ padding: '12px', fontWeight: '500', minWidth: '90px' }}>{reg.fecha}</td>
-                          <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize', minWidth: '90px' }}>{estado.replace('-', ' ')}</td>
+                          <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize', minWidth: '90px' }}>{String(estado||'--').replace('-', ' ')}</td>
                           <td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                         </tr>
                       )
@@ -1119,6 +1120,34 @@ function App() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (modoIngreso === 'staff' && !accesoGlobal) {
+    return (
+      <div className="login-container" style={{ flexDirection: 'column' }}>
+        {estilosGlobales}
+        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '12px 24px', borderRadius: '12px', zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}><strong>⚠️ Error: </strong>{mensajeError}</div>)}
+        <button onClick={() => setModoIngreso('inicio')} style={{ position: 'absolute', top: 30, left: 30, background: 'white', border: '1px solid #d1d5db', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', color: '#4b5563' }}>← Volver</button>
+        <div className="login-card" style={{ animation: errorLoginGlobal ? 'vibrar 0.3s ease' : 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '10px' }}>
+            <img src="/boss_accredible.png" alt="Logo" style={{ height: '70px', width: 'auto', objectFit: 'contain' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
+          </div>
+          <h2 style={{ color: '#4b5563', fontSize: '18px', fontWeight: '500', marginBottom: '25px' }}>Staff Log in</h2>
+          <form onSubmit={handleLoginGlobal}>
+            <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
+              <input type="text" placeholder="User ID" className="login-input" value={usuarioGlobal} onChange={(e) => setUsuarioGlobal(e.target.value)} />
+              <span style={{ color: '#9ca3af', fontSize: '18px' }}>👤</span>
+            </div>
+            <div className="login-input-group" style={{ border: errorLoginGlobal ? '1px solid #ef4444' : '1px solid transparent' }}>
+              <input type="password" placeholder="••••••••" className="login-input" value={claveGlobal} onChange={(e) => setClaveGlobal(e.target.value)} />
+              <span style={{ color: '#9ca3af', fontSize: '18px' }}>🔑</span>
+            </div>
+            {errorLoginGlobal && <p style={{ color: '#ef4444', fontSize: '12px', margin: '-10px 0 15px 0', textAlign: 'left' }}>Credenciales incorrectas.</p>}
+            <button type="submit" className="login-btn" style={{ backgroundColor: '#1f2937' }}>INGRESAR AL SISTEMA</button>
+          </form>
         </div>
       </div>
     )
@@ -1328,7 +1357,7 @@ function App() {
                             {resultadosBusqueda.map((reg, idx) => {
                                 const nombres = Object.keys(reg.asistencia || {});
                                 let alumnosAMostrar = nombres;
-                                if (tipoBusqueda === 'alumno') { const match = nombres.find(n => (n||'').toLowerCase().includes(terminoBusqueda.toLowerCase())); if (match) alumnosAMostrar = [match]; }
+                                if (tipoBusqueda === 'alumno') { const match = nombres.find(n => String(n||'').toLowerCase().includes(String(terminoBusqueda).toLowerCase())); if (match) alumnosAMostrar = [match]; }
                                 const claseEnBD = clasesFirebase.find(c => c.titulo === reg.clase); const nivelReal = reg.nivel || (claseEnBD ? claseEnBD.curso : '--');
                                 return alumnosAMostrar.map((alum, subIdx) => {
                                   const estado = reg.asistencia?.[alum]; const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
@@ -1338,7 +1367,7 @@ function App() {
                                     <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
                                         <td style={{ padding: '12px', fontWeight: '500', color: '#111827' }}>{reg.fecha || '--'}</td><td style={{ padding: '12px', textTransform: 'capitalize' }}>{alum || '--'}</td>
                                         <td style={{ padding: '12px' }}>{reg.clase || '--'} <br/><span style={{ color: '#6b7280', fontSize: '11px' }}>Nivel: {nivelReal}</span></td><td style={{ padding: '12px' }}>{reg.profesor || '--'}</td>
-                                        <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{(estado||'--').replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
+                                        <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{String(estado||'--').replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                                         <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
                                         <td style={{ padding: '12px', textAlign: 'center' }}>
                                           <button onClick={() => {
@@ -1361,12 +1390,14 @@ function App() {
                 </div>
               )}
 
-              {/* DIRECTORIO ALUMNOS */}
+              {/* DIRECTORIO ALUMNOS (RENOVADO: AHORA INCLUYE EMAIL Y EDICION) */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div className="grid-resp-2">
+                    
+                    {/* COLUMNA IZQUIERDA: CREAR ALUMNO */}
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno</h2>
                       <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
                       <form onSubmit={handleAgregarAlumno} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
@@ -1389,6 +1420,7 @@ function App() {
                             <input type="text" placeholder="Ej: 76543210" value={nuevoAlumnoNumDoc} onChange={(e) => setNuevoAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
                         </div>
+                        {/* NUEVO CAMPO: EMAIL */}
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Correo Electrónico (Opcional)</label>
                           <input type="email" placeholder="Ej: ana@correo.com" value={nuevoAlumnoEmail} onChange={(e) => setNuevoAlumnoEmail(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1397,6 +1429,7 @@ function App() {
                       </form>
                     </div>
 
+                    {/* COLUMNA DERECHA: DIRECTORIO CON EDICION */}
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '15px' }}>
                         <h2 style={{ margin: 0, fontSize: '20px', color: '#374151' }}>👥 Alumnos en Directorio</h2>
@@ -1404,9 +1437,10 @@ function App() {
                       <input type="text" placeholder="🔍 Buscar por nombre o número de documento..." value={busquedaDirectorio} onChange={(e) => setBusquedaDirectorio(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', marginBottom: '15px', boxSizing: 'border-box' }} />
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-                        {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
+                        {alumnosFirebase.filter(a => String(a.nombre||'').toLowerCase().includes(String(busquedaDirectorio).toLowerCase()) || String(a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
                           
                           editandoAlumnoId === alum.id ? (
+                            // MODO EDICIÓN
                             <div key={alum.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
                               <p style={{margin: '0 0 5px 0', fontSize: '13px', color: '#b45309', fontWeight: 'bold'}}>✏️ Editando Perfil</p>
                               <input type="text" value={editAlumnoNombre} onChange={e=>setEditAlumnoNombre(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', fontSize: '14px'}} placeholder="Nombre completo" />
@@ -1423,6 +1457,7 @@ function App() {
                               </div>
                             </div>
                           ) : (
+                            // MODO LECTURA NORMAL
                             <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
@@ -1430,6 +1465,7 @@ function App() {
                                 {alum.email && <span style={{ fontSize: '10px', color: '#3b82f6', marginTop: '2px' }}>📧 {alum.email}</span>}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {/* BOTÓN LAPIZ */}
                                 <button onClick={() => {
                                   setEditandoAlumnoId(alum.id); setEditAlumnoNombre(alum.nombre); setEditAlumnoTipoDoc(alum.tipoDoc || 'DNI'); setEditAlumnoNumDoc(alum.numDoc); setEditAlumnoEmail(alum.email || '');
                                 }} style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '14px' }} title="Editar Alumno">✏️</button>
@@ -1442,7 +1478,7 @@ function App() {
                             </div>
                           )
                         ))}
-                        {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No hay resultados de búsqueda.</p>}
+                        {alumnosFirebase.filter(a => String(a.nombre||'').toLowerCase().includes(String(busquedaDirectorio).toLowerCase()) || String(a.numDoc||'').includes(busquedaDirectorio)).length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No hay resultados de búsqueda.</p>}
                       </div>
                     </div>
                   </div>
@@ -1629,7 +1665,7 @@ function App() {
                     </div>
                   </div>
 
-                  <div className="grid-resp-2">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h2 style={{ margin: '0 0 20px 0', fontSize: '18px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>📄 Historial de Mensualidades</h2>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '5px' }}>
@@ -1728,10 +1764,10 @@ function App() {
                           style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', marginBottom: '10px', boxSizing: 'border-box', fontSize: '13px' }} 
                         />
                         <div className="scroll-casillas" style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #d1d5db', borderRadius: '8px', padding: '12px', backgroundColor: '#f9fafb' }}>
-                          {alumnosFirebase.filter(al => al.activo !== false && ((al.nombre||'').toLowerCase().includes(busquedaEstudiantesClase.toLowerCase()) || (al.numDoc||'').includes(busquedaEstudiantesClase))).length === 0 ? (
+                          {alumnosFirebase.filter(al => al.activo !== false && (String(al.nombre||'').toLowerCase().includes(String(busquedaEstudiantesClase).toLowerCase()) || String(al.numDoc||'').includes(busquedaEstudiantesClase))).length === 0 ? (
                             <p style={{ margin: 0, fontSize: '13px', color: '#6b7280' }}>⚠️ No hay alumnos que coincidan con la búsqueda.</p>
                           ) : (
-                            alumnosFirebase.filter(al => al.activo !== false && ((al.nombre||'').toLowerCase().includes(busquedaEstudiantesClase.toLowerCase()) || (al.numDoc||'').includes(busquedaEstudiantesClase))).map(al => (
+                            alumnosFirebase.filter(al => al.activo !== false && (String(al.nombre||'').toLowerCase().includes(String(busquedaEstudiantesClase).toLowerCase()) || String(al.numDoc||'').includes(busquedaEstudiantesClase))).map(al => (
                               <label key={al.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', borderBottom: '1px solid #e5e7eb', cursor: 'pointer' }}>
                                 <input type="checkbox" checked={estudiantesSeleccionados.includes(al.nombre)} onChange={(e) => { if(e.target.checked) setEstudiantesSeleccionados([...estudiantesSeleccionados, al.nombre]); else setEstudiantesSeleccionados(estudiantesSeleccionados.filter(n => n !== al.nombre)); }} style={{ cursor: 'pointer', width: '16px', height: '16px' }} />
                                 <span style={{ fontSize: '14px', color: '#374151', textTransform: 'capitalize' }}>
@@ -1830,379 +1866,6 @@ function App() {
           </div>
         </div>
       </>
-    )
-  }
-
-  // ==========================================
-  // VISTA 6: DASHBOARD DE PROFESOR
-  // ==========================================
-  if (profesorSeleccionado) {
-    let mesPrefixPlanilla = "";
-    if (mesPlanilla === "2026-08") mesPrefixPlanilla = "2026-08"; else if (mesPlanilla === "2026-07") mesPrefixPlanilla = "2026-07";
-    const registrosMesProfesor = registrosFirebase.filter(reg => {
-      if(reg.profesor !== profesorSeleccionado.nombre) return false;
-      if(mesPrefixPlanilla === "") return true;
-      const f = parseFechaUniversal(reg.fecha);
-      return f.startsWith(mesPrefixPlanilla);
-    });
-    const montoCalculadoPantalla = registrosMesProfesor.reduce((acc, reg) => acc + ((reg.horas || 0) * (reg.tarifa || 0)), 0);
-
-    let totalNotas = 0; let countNotas = 0;
-    if (claseSeleccionada) {
-      const registrosDeEstaClase = registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo);
-      registrosDeEstaClase.forEach(reg => {
-        if (reg.notas) { Object.values(reg.notas).forEach(nota => { 
-          const val = typeof nota === 'object' ? getPromedio(nota) : parseFloat(nota); 
-          if (!isNaN(val)) { totalNotas += parseFloat(val); countNotas++; }
-        });}
-      });
-    }
-    const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
-
-    const misClasesProfesor = clasesFirebase.filter(c => c.profesorId === profesorSeleccionado.id);
-    const misAlumnos = Array.from(new Set(misClasesProfesor.flatMap(c => c.estudiantes || [])))
-      .filter(a => todosLosAlumnos.includes(a))
-      .sort((a, b) => a.localeCompare(b));
-
-    return (
-      <>
-        {estilosGlobales}
-        {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos obligatorios'}</h4></div></div>)}
-        {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
-
-        {/* MODAL PARA EXAMEN FINAL */}
-        {mostrarModalExamen && (
-          <>
-            <div onClick={() => setMostrarModalExamen(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '400px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', animation: 'aparecerFade 0.3s ease forwards' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>
-                <h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>📝 Registrar FINAL EXAM</h2>
-                <button onClick={() => setMostrarModalExamen(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
-              </div>
-              <form onSubmit={handleGuardarExamen} style={{ display: 'flex', flexDirection: 'column', gap: '15px', textAlign: 'left' }}>
-                <div>
-                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Fecha del Examen</label>
-                  <input type="date" value={examenFecha} onChange={e => setExamenFecha(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}/>
-                </div>
-                <div>
-                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Buscar Alumno</label>
-                  <input type="text" placeholder="Escribe para filtrar tus alumnos..." value={busquedaAlumnoExamen} onChange={e => setBusquedaAlumnoExamen(e.target.value)} className="input-flotante" style={{width:'100%', padding: '8px', borderRadius: '8px', border: '1px solid #d1d5db', marginBottom: '5px', boxSizing: 'border-box', fontSize: '12px'}}/>
-                  <select value={examenAlumno} onChange={e => setExamenAlumno(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}>
-                    <option value="">-- Seleccionar Alumno --</option>
-                    {misAlumnos.filter(a => a.toLowerCase().includes(busquedaAlumnoExamen.toLowerCase())).map((a,i) => <option key={i} value={a}>{a}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Nivel o Libro evaluado</label>
-                  <input type="text" placeholder="Ej: Speak Up Level 3" value={examenNivel} onChange={e => setExamenNivel(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}/>
-                </div>
-                <div>
-                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Nota Final (1 al 20)</label>
-                  <input type="number" min="0" max="20" step="0.1" placeholder="Ej: 18.5" value={examenNota} onChange={e => setExamenNota(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}/>
-                </div>
-                <button type="submit" className="btn-flotante" style={{background:'#2563eb', color:'white', padding:'14px', borderRadius:'8px', border:'none', fontWeight:'bold', marginTop: '10px', fontSize: '15px'}}>Guardar Examen Oficial</button>
-              </form>
-            </div>
-          </>
-        )}
-
-        {mostrarModalExportar && (
-          <>
-            <div onClick={() => setMostrarModalExportar(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '400px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transformOrigin: 'top left', animation: 'aparecerFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
-                <div><h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>Exportar Reporte</h2><p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>Clase: <strong>{claseSeleccionada?.titulo}</strong></p></div>
-                <button onClick={() => setMostrarModalExportar(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
-              </div>
-              <div style={{ marginBottom: '24px', textAlign: 'left' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Selecciona el periodo:</label>
-                <select value={mesExportar} onChange={(e) => setMesExportar(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
-                  <option value="todo">📚 Exportar todo el historial</option>
-                  <option value="2026">Todo el 2026 (Anual)</option>
-                  <option value="2025">Todo el 2025 (Anual)</option>
-                  <option value="2024">Todo el 2024 (Anual)</option>
-                  <optgroup label="Meses Específicos">
-                    {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
-                  </optgroup>
-                </select>
-              </div>
-              <button onClick={generarPDFReporteClase} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF</button>
-            </div>
-          </>
-        )}
-
-        {mostrarPlanilla && (
-          <>
-            <div onClick={() => setMostrarPlanilla(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '500px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transformOrigin: 'top left', animation: 'aparecerFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', paddingBottom: '16px' }}>
-                <div><h2 style={{ margin: 0, color: '#111827', fontSize: '20px' }}>Resumen de Pago Mensual</h2><p style={{ margin: '4px 0 0 0', color: '#6b7280', fontSize: '14px' }}>Profesor: <strong>{profesorSeleccionado.nombre}</strong></p></div>
-                <button onClick={() => setMostrarPlanilla(false)} style={{ background: 'none', border: 'none', fontSize: '20px', color: '#9ca3af', cursor: 'pointer' }}>✖</button>
-              </div>
-              <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px' }}>Periodo a facturar:</label>
-                <select value={mesPlanilla} onChange={(e) => setMesPlanilla(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: '#f9fafb', fontSize: '14px', color: '#111827' }}>
-                  {opcionesMesesGlobal.map(m => <option key={m} value={m}>{formatMesTexto(m)}</option>)}
-                </select>
-              </div>
-              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <p style={{ margin: 0, color: '#6b7280', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Monto a cobrar</p>
-                <h1 style={{ margin: '8px 0', color: '#059669', fontSize: '36px' }}>S/. {montoCalculadoPantalla.toFixed(2)}</h1>
-                <p style={{ margin: 0, color: '#9ca3af', fontSize: '12px' }}>Cálculo basado en las horas registradas este periodo.</p>
-              </div>
-              <button onClick={generarPDFPlanilla} className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: '600', fontSize: '15px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>⬇️ Descargar PDF Oficial</button>
-            </div>
-          </>
-        )}
-
-        <div className="dashboard-layout">
-          <div className="sidebar-prof">
-            <div style={{ padding: '24px 20px', borderBottom: '1px solid #e5e7eb' }}>
-              <button onClick={handleCerrarSesionProfesor} className="btn-flotante" style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: '5px 10px', marginLeft: '-10px', borderRadius: '6px', marginBottom: '20px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '5px' }}>← Cerrar Sesión</button>
-              <div style={{ marginBottom: '15px', textAlign: 'left' }}>
-                <img src="/boss_accredible.png" alt="Logo" style={{ width: '90px', height: 'auto', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => { e.target.onerror = null; e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-                <div><h2 style={{ margin: '0 0 2px 0', fontSize: '18px', color: '#111827' }}>Mis Clases</h2><p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Cursos asignados</p></div>
-              </div>
-            </div>
-            <div className="sidebar-menu">
-              {misClases.length === 0 ? (
-                <p style={{ color: '#9ca3af', textAlign: 'center', fontSize: '13px', marginTop: '20px' }}>No tienes clases asignadas aún.</p>
-              ) : (
-                misClases.map((clase) => (
-                  <div key={clase.id} onClick={() => setClaseSeleccionada(clase)} className="btn-flotante admin-menu-btn" style={{ padding: '12px 16px', borderRadius: '12px', cursor: 'pointer', marginBottom: '8px', backgroundColor: claseSeleccionada?.id === clase.id ? '#eff6ff' : 'transparent', border: claseSeleccionada?.id === clase.id ? '1px solid #bfdbfe' : '1px solid transparent', textAlign: 'left', display: 'block' }}>
-                    <h4 style={{ margin: 0, color: claseSeleccionada?.id === clase.id ? '#1d4ed8' : '#374151', fontSize: '14px' }}>{clase.titulo}</h4>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6b7280' }}>{(clase.estudiantes||[]).length} alumno(s) • {clase.curso}</p>
-                  </div>
-                ))
-              )}
-            </div>
-            <div style={{ padding: '20px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button onClick={() => setMostrarModalExamen(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #3b82f6', backgroundColor: '#eff6ff', color: '#1d4ed8', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>📝 Subir Final Exam</button>
-              <button onClick={() => setMostrarPlanilla(true)} className="btn-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: '600', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>📊 Ver y Exportar Pago</button>
-            </div>
-          </div>
-
-          <div className="main-content">
-            {claseSeleccionada ? (
-              <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', maxWidth: '900px', margin: '0 auto' }}>
-                <div className="mobile-stack" style={{ display: 'flex', flexDirection: 'column', gap: '15px', borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-                    <div style={{ flex: 1 }}></div>
-                    <div style={{ flex: 2, textAlign: 'center' }}>
-                      <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>
-                        {editandoRegistroId ? '✏️ Editando Notas Anteriores' : 'Registro de Clase'}
-                      </h1>
-                      <p style={{ margin: '8px 0 0 0', color: '#6b7280', fontSize: '15px' }}>Clase seleccionada: <strong style={{ color: '#374151' }}>{claseSeleccionada.titulo}</strong></p>
-                    </div>
-                    <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-                      <button onClick={() => setMostrarModalExportar(true)} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>📄 Exportar Reporte</button>
-                    </div>
-                  </div>
-                  
-                  {editandoRegistroId && (
-                    <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', padding: '10px', borderRadius: '8px', textAlign: 'center', marginBottom: '10px' }}>
-                      <span style={{ color: '#d97706', fontSize: '13px', fontWeight: 'bold' }}>⚠️ Estás modificando un registro del pasado.</span>
-                      <button onClick={() => {setEditandoRegistroId(null); setAsistencia({}); setNotas({}); setObsIndividual({}); setFechaClase(''); setHorasClase(''); setObsGeneral('');}} style={{ background: 'none', border: 'none', color: '#b45309', textDecoration: 'underline', cursor: 'pointer', marginLeft: '10px', fontSize: '13px' }}>Cancelar edición</button>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    {editandoCurso ? (
-                      <>
-                        <input type="text" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} className="input-flotante" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', outline: 'none', fontSize: '13px', width: '200px' }} />
-                        <button onClick={handleActualizarCurso} style={{ background: '#10b981', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Guardar</button>
-                        <button onClick={() => setEditandoCurso(false)} style={{ background: '#ef4444', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Cancelar</button>
-                      </>
-                    ) : (
-                      <>
-                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
-                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }}>✏️</button>
-                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>Desempeño Individual</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {(claseSeleccionada.estudiantes || []).filter(est => todosLosAlumnos.includes(est)).map((estudiante, index) => (
-                      <div key={index} style={{ backgroundColor: '#f9fafb', padding: '20px', borderRadius: '12px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'center' }}>
-                          <h4 style={{ margin: '0', color: '#111827', fontSize: '16px', minWidth: '140px', textAlign: 'center', textTransform: 'capitalize' }}>{estudiante}</h4>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'asistio'})} style={obtenerEstiloBoton(estudiante, 'asistio', '#86efac', '#dcfce7', '#166534')}>Asistió</button>
-                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'no-asistio'})} style={obtenerEstiloBoton(estudiante, 'no-asistio', '#fca5a5', '#fee2e2', '#991b1b')}>No asistió</button>
-                            <button onClick={() => setAsistencia({...asistencia, [estudiante]: 'reprogramo'})} style={obtenerEstiloBoton(estudiante, 'reprogramo', '#fcd34d', '#fef3c7', '#92400e')}>Reprogramó</button>
-                          </div>
-                        </div>
-
-                        {(asistencia[estudiante] === 'asistio' || asistencia[estudiante] === 'reprogramo') && (
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', backgroundColor: '#eff6ff', padding: '12px', borderRadius: '8px', flexWrap: 'wrap' }}>
-                            <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: '600', width: '100%', textAlign: 'center', marginBottom: '4px' }}>
-                              Evaluación Diaria (1-20) {asistencia[estudiante] === 'reprogramo' ? '- Clase Reprogramada' : ''}
-                            </div>
-                            {['oral', 'grammar', 'reading', 'listening', 'writing'].map(skill => (
-                              <div key={skill} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ fontSize: '10px', color: '#3b82f6', fontWeight: '700', textTransform: 'uppercase' }}>{skill}</span>
-                                <select
-                                  value={notas[estudiante]?.[skill] || ''}
-                                  onChange={(e) => setNotas({...notas, [estudiante]: {...(notas[estudiante] || {}), [skill]: e.target.value}})}
-                                  style={{ width: '50px', padding: '6px 4px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px', textAlign: 'center', outline: 'none', backgroundColor: 'white', color: '#111827', cursor: 'pointer' }}
-                                >
-                                  <option value="">--</option>
-                                  {[...Array(20)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
-                                </select>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        <div style={{ width: '100%' }}>
-                          <input className="input-flotante" type="text" placeholder={`Observaciones sobre ${estudiante} (Opcional)`} value={obsIndividual[estudiante] || ''} onChange={(e) => setObsIndividual({...obsIndividual, [estudiante]: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', fontSize: '13px', boxSizing: 'border-box' }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mobile-stack" style={{ display: 'flex', gap: '24px', marginBottom: '24px' }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Fecha (Real)</label>
-                    <input className="input-flotante" type="date" value={fechaClase} onChange={(e) => setFechaClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Horas (Real)</label>
-                    <input className="input-flotante" type="number" step="0.5" placeholder="Ej: 1.5" value={horasClase} onChange={(e) => setHorasClase(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Tarifa</label>
-                    <input className="input-flotante" type="text" value={`S/. ${claseSeleccionada.tarifa} / hr`} disabled style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: '#f3f4f6', color: '#6b7280', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '32px' }}>
-                  <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Observaciones Generales</label>
-                  <textarea className="input-flotante" rows="3" placeholder="Detalles sobre temas vistos, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
-                </div>
-                
-                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: editandoRegistroId ? '#10b981' : '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>
-                  {editandoRegistroId ? '💾 Guardar Cambios (Sobrescribir)' : 'Guardar Registro Completo'}
-                </button>
-
-                {/* HISTORIAL DEL PROFESOR CON BOTON EDITAR */}
-                <div style={{ marginTop: '40px', borderTop: '2px dashed #e5e7eb', paddingTop: '30px' }}>
-                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', textAlign: 'center' }}>📅 Registros Pasados de esta Clase</h3>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left', minWidth: '600px' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: '#f3f4f6', color: '#374151' }}>
-                          <th style={{ padding: '10px' }}>Fecha</th>
-                          <th style={{ padding: '10px' }}>Alumno</th>
-                          <th style={{ padding: '10px' }}>Asistencia</th>
-                          <th style={{ padding: '10px' }}>Notas</th>
-                          <th style={{ padding: '10px', textAlign: 'center' }}>Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo).sort((a,b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha))).map((reg, idx) => {
-                          const nombres = Object.keys(reg.asistencia || {});
-                          const nombresReales = nombres.filter(n => todosLosAlumnos.includes(n));
-                          return nombresReales.map((alum, subIdx) => {
-                            const estado = reg.asistencia?.[alum]; 
-                            const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
-                            const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
-                            return (
-                              <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: editandoRegistroId === reg.id ? '#fffbeb' : 'transparent' }}>
-                                  <td style={{ padding: '10px', fontWeight: '500' }}>{reg.fecha}</td>
-                                  <td style={{ padding: '10px' }}>{alum}</td>
-                                  <td style={{ padding: '10px', color: colorEstado, fontWeight: 'bold' }}>{estado.replace('-', ' ')}</td>
-                                  <td style={{ padding: '10px' }}>{notaCol}</td>
-                                  <td style={{ padding: '10px', textAlign: 'center' }}>
-                                    <button onClick={() => {
-                                        setFechaClase(reg.fecha || ''); setHorasClase(reg.horas || ''); setAsistencia(reg.asistencia || {}); setNotas(reg.notas || {}); setObsIndividual(reg.observacionesIndividuales || {}); setObsGeneral(reg.observacionGeneral || ''); setEditandoRegistroId(reg.id);
-                                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                                    }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '5px' }} title="Editar este registro">✏️</button>
-                                  </td>
-                              </tr>
-                            )
-                          });
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-              </div>
-            ) : (
-              <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', padding: '20px', textAlign: 'center' }}>
-                <h3>Selecciona una clase del panel para comenzar</h3>
-              </div>
-            )}
-          </div>
-        </div>
-      </>
-    )
-  }
-
-  if (accesoGlobal && !vistaAdmin && !profesorSeleccionado) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', backgroundColor: '#f4f6f8' }}>
-        {estilosGlobales}
-        
-        {mostrarModalAdmin && (
-          <>
-            <div onClick={() => {setMostrarModalAdmin(false); setErrorAdminPin(false); setClaveAdminInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-              <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Acceso Administrativo</h2>
-              <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa la clave maestra.</p>
-              <form onSubmit={handleLoginAdmin}>
-                <input type="password" placeholder="Clave Maestra" className="input-flotante" value={claveAdminInput} onChange={(e) => setClaveAdminInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorAdminPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
-                <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#111827', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Entrar al Panel</button>
-              </form>
-            </div>
-          </>
-        )}
-
-        {profesorAAutenticar && (
-          <>
-            <div onClick={() => {setProfesorAAutenticar(null); setErrorPin(false); setPinInput('')}} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
-            <div style={{ position: 'fixed', top: '50%', left: '50%', width: '90%', maxWidth: '350px', backgroundColor: 'white', borderRadius: '20px', padding: '32px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1000, transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-              <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: profesorAAutenticar.color, color: 'white', fontSize: '24px', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 20px' }}>{(profesorAAutenticar.nombre||'?').charAt(0)}</div>
-              <h2 style={{ margin: '0 0 8px 0', color: '#111827', fontSize: '20px' }}>Hola, {(profesorAAutenticar.nombre||'Profesor').split(' ')[0]}</h2>
-              <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>Ingresa tu PIN de seguridad.</p>
-              <form onSubmit={handleLoginProfesor}>
-                <input type="password" placeholder="PIN" className="input-flotante" value={pinInput} onChange={(e) => setPinInput(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: errorPin ? '1px solid #ef4444' : '1px solid #d1d5db', outline: 'none', marginBottom: '16px', textAlign: 'center' }} autoFocus />
-                <button type="submit" className="btn-flotante" style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#3b82f6', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Ingresar</button>
-              </form>
-            </div>
-          </>
-        )}
-
-        <div style={{ position: 'absolute', top: '20px', left: '20px' }}>
-          <button onClick={() => {setAccesoGlobal(false); setModoIngreso('inicio')}} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>🚪 Salir</button>
-        </div>
-        <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '10px' }}>
-          <button onClick={() => setMostrarModalAdmin(true)} className="btn-flotante" style={{ background: '#111827', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}>⚙️ Admin Panel</button>
-        </div>
-        <div style={{ marginTop: '40px', marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <img src="/boss_accredible.png" alt="Logo" style={{ width: '120px', height: 'auto', marginBottom: '15px' }} onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=BLC&background=2563eb&color=fff&rounded=true' }} />
-          <h1 style={{ color: '#1f2937', margin: '0 0 8px 0', fontWeight: '600', fontSize: '28px', padding: '0 15px' }}>Boss Language Center</h1>
-          <p style={{ color: '#6b7280', margin: 0, fontSize: '15px' }}>Selecciona tu perfil docente para iniciar clase</p>
-        </div>
-        
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '20px', maxWidth: '750px', margin: '0 auto', paddingBottom: '40px' }}>
-          {profesores.filter(p => p.activo !== false).map((profesor) => (
-            <div key={profesor.id} onClick={() => setProfesorAAutenticar(profesor)} className="tarjeta-notificacion" style={{ backgroundColor: 'white', margin: '0 15px' }}>
-              <div className="avatar" style={{ backgroundColor: profesor.color }}>{(profesor.nombre||'?').charAt(0)}</div>
-              <div className="textos" style={{ textAlign: 'left' }}>
-                <h2 style={{ margin: '0 0 4px 0', fontSize: '16px', color: '#1f1f1f', fontWeight: '600' }}>{profesor.nombre || 'Sin Nombre'}</h2>
-                <p style={{ margin: 0, fontSize: '13px', color: '#5f6368' }}>Language Teacher</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     )
   }
 
