@@ -60,6 +60,7 @@ function App() {
   const [nuevoAlumnoNombre, setNuevoAlumnoNombre] = useState('')
   const [nuevoAlumnoTipoDoc, setNuevoAlumnoTipoDoc] = useState('DNI')
   const [nuevoAlumnoNumDoc, setNuevoAlumnoNumDoc] = useState('')
+  const [nuevoAlumnoEmail, setNuevoAlumnoEmail] = useState('') // NUEVO CAMPO EMAIL
   const [busquedaDirectorio, setBusquedaDirectorio] = useState('') 
 
   const [nuevaClaseTitulo, setNuevaClaseTitulo] = useState('')
@@ -102,9 +103,15 @@ function App() {
   const [examenFecha, setExamenFecha] = useState('')
   const [busquedaAlumnoExamen, setBusquedaAlumnoExamen] = useState('')
 
-  // NUEVOS ESTADOS PARA EDICIÓN
   const [editandoRegistroId, setEditandoRegistroId] = useState(null)
   const [editandoClaseId, setEditandoClaseId] = useState(null)
+
+  // NUEVOS ESTADOS PARA EDITAR ALUMNOS
+  const [editandoAlumnoId, setEditandoAlumnoId] = useState(null)
+  const [editAlumnoNombre, setEditAlumnoNombre] = useState('')
+  const [editAlumnoTipoDoc, setEditAlumnoTipoDoc] = useState('DNI')
+  const [editAlumnoNumDoc, setEditAlumnoNumDoc] = useState('')
+  const [editAlumnoEmail, setEditAlumnoEmail] = useState('')
 
   const opcionesMesesGlobal = [];
   for(let y=2026; y>=2024; y--) {
@@ -167,7 +174,6 @@ function App() {
     ...clasesFirebase.flatMap(c => c.estudiantes || [])
   ])).filter(Boolean).sort();
 
-  // NUEVO FILTRO PARA FINANZAS (SOLO ACTIVOS)
   const alumnosActivos = alumnosFirebase.filter(a => a.activo !== false).map(a => a.nombre).sort((a, b) => a.localeCompare(b));
 
   const getPromedio = (notasDato) => {
@@ -197,7 +203,6 @@ function App() {
     if (!textoImportar || !claseImportar || !profesorImportar || !alumnoImportar) {
       triggerError('Llena todos los campos obligatorios y pega los datos del Excel.'); return;
     }
-    
     if (alumnoImportar.length > 60) {
       triggerError('El nombre del alumno es muy largo. ¿Pegaste la tabla en la casilla equivocada?'); return;
     }
@@ -215,8 +220,8 @@ function App() {
 
       let alumnoExiste = alumnosFirebase.some(a => (a.nombre||'').toLowerCase() === nombreAlumno.toLowerCase());
       if (!alumnoExiste) {
-        await addDoc(collection(db, "alumnos"), { nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', fechaRegistro: new Date().toISOString(), activo: true });
-        nuevosAlumnosRegistrados++; alumnosFirebase.push({nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', activo: true}); 
+        await addDoc(collection(db, "alumnos"), { nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', email: '', fechaRegistro: new Date().toISOString(), activo: true });
+        nuevosAlumnosRegistrados++; alumnosFirebase.push({nombre: nombreAlumno, tipoDoc: 'DNI', numDoc: 'PENDIENTE', email: '', activo: true}); 
       }
 
       if (claseRef && !(claseRef.estudiantes || []).includes(nombreAlumno)) {
@@ -280,6 +285,49 @@ function App() {
       setMostrarModalExamen(false); setExamenAlumno(''); setExamenNivel(''); setExamenNota(''); setExamenFecha(''); setBusquedaAlumnoExamen('');
       const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { triggerError("Error al guardar el examen. Revisa tu conexión."); }
+  }
+
+  // ==========================================
+  // NUEVA FUNCION: ACTUALIZAR ALUMNO Y CASCADA
+  // ==========================================
+  const handleActualizarAlumno = async (id, oldName) => {
+    if(!editAlumnoNombre || !editAlumnoNumDoc) { triggerError("El nombre y el documento son obligatorios."); return; }
+    try {
+      // 1. Actualizar en el directorio
+      await updateDoc(doc(db, "alumnos", id), {
+        nombre: editAlumnoNombre, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''
+      });
+      setAlumnosFirebase(prev => prev.map(a => a.id === id ? {...a, nombre: editAlumnoNombre, tipoDoc: editAlumnoTipoDoc, numDoc: editAlumnoNumDoc, email: editAlumnoEmail || ''} : a));
+
+      // 2. MAGIA EN CASCADA: Si cambió de nombre, actualiza en todas las clases y registros viejos
+      if (editAlumnoNombre !== oldName) {
+         // Actualizar Clases
+         const clasesToUpdate = clasesFirebase.filter(c => (c.estudiantes||[]).includes(oldName));
+         for (let c of clasesToUpdate) {
+            const newEstudiantes = c.estudiantes.map(e => e === oldName ? editAlumnoNombre : e);
+            await updateDoc(doc(db, "clases", c.id), { estudiantes: newEstudiantes });
+         }
+         
+         // Actualizar Historial de Notas (RegistrosClases)
+         const regsToUpdate = registrosFirebase.filter(r => r.asistencia && r.asistencia[oldName]);
+         for (let r of regsToUpdate) {
+             const newAsist = {...r.asistencia}; newAsist[editAlumnoNombre] = newAsist[oldName]; delete newAsist[oldName];
+             const newNotas = {...(r.notas || {})}; if(newNotas[oldName]) { newNotas[editAlumnoNombre] = newNotas[oldName]; delete newNotas[oldName]; }
+             const newObs = {...(r.observacionesIndividuales || {})}; if(newObs[oldName]) { newObs[editAlumnoNombre] = newObs[oldName]; delete newObs[oldName]; }
+             
+             await updateDoc(doc(db, "registrosClases", r.id), { asistencia: newAsist, notas: newNotas, observacionesIndividuales: newObs });
+         }
+         
+         // Recargar clases y registros para la UI
+         const cSnap = await getDocs(collection(db, "clases")); setClasesFirebase(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+         const rSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }
+
+      setMensajeExito("¡Datos de alumno actualizados perfectamente! ✏️✅"); setTimeout(() => setMensajeExito(''), 4000);
+      setEditandoAlumnoId(null);
+    } catch(err) {
+      triggerError("Error al guardar cambios de edición.");
+    }
   }
 
   const agregarEncabezadoPDF = async (doc, titulo, subtitulos) => {
@@ -665,8 +713,8 @@ function App() {
     const existeDoc = alumnosFirebase.some(a => a.numDoc === nuevoAlumnoNumDoc);
     if (existeDoc) { triggerError('Ese documento ya está registrado. Usa otro.'); return; }
     try {
-      await addDoc(collection(db, "alumnos"), { nombre: nuevoAlumnoNombre, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, fechaRegistro: new Date().toISOString(), activo: true });
-      setNuevoAlumnoNombre(''); setNuevoAlumnoNumDoc(''); setMensajeExito('Alumno registrado en el Directorio ✅'); setTimeout(() => setMensajeExito(''), 3000);
+      await addDoc(collection(db, "alumnos"), { nombre: nuevoAlumnoNombre, tipoDoc: nuevoAlumnoTipoDoc, numDoc: nuevoAlumnoNumDoc, email: nuevoAlumnoEmail || '', fechaRegistro: new Date().toISOString(), activo: true });
+      setNuevoAlumnoNombre(''); setNuevoAlumnoNumDoc(''); setNuevoAlumnoEmail(''); setMensajeExito('Alumno registrado en el Directorio ✅'); setTimeout(() => setMensajeExito(''), 3000);
     } catch (error) { triggerError('Error al guardar en base de datos'); }
   }
 
@@ -679,9 +727,6 @@ function App() {
     } catch (error) { triggerError('Error de conexión'); }
   }
 
-  // ==========================================
-  // HANDLER ACTUALIZADO PARA CREAR O EDITAR CLASE (NUEVO)
-  // ==========================================
   const handleAgregarClase = async (e) => {
     e.preventDefault();
     if (!nuevaClaseTitulo || !nuevaClaseCurso || !nuevaClaseTarifa || estudiantesSeleccionados.length === 0 || !nuevaClaseProfesorId || !nuevaClaseDias || !nuevaClaseHorario) {
@@ -757,9 +802,6 @@ function App() {
 
   const handleCerrarSesionProfesor = () => { setProfesorSeleccionado(null); setClaseSeleccionada(null); setEditandoRegistroId(null); }
 
-  // ==========================================
-  // HANDLER ACTUALIZADO PARA CREAR O EDITAR NOTAS (NUEVO)
-  // ==========================================
   const handleGuardarRegistro = async () => {
     let formularioCompleto = true;
     if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false;
@@ -796,6 +838,9 @@ function App() {
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
+  // ==========================================
+  // ESTILOS GLOBALES
+  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -1298,7 +1343,6 @@ function App() {
                                         <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{(estado||'--').replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                                         <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
                                         <td style={{ padding: '12px', textAlign: 'center' }}>
-                                          {/* BOTÓN EDITAR EN ADMIN (NUEVO) */}
                                           <button onClick={() => {
                                              setProfesorSeleccionado(profesores.find(p => p.nombre === reg.profesor));
                                              setClaseSeleccionada(clasesFirebase.find(c => c.titulo === reg.clase));
@@ -1319,13 +1363,14 @@ function App() {
                 </div>
               )}
 
-              {/* DIRECTORIO ALUMNOS */}
+              {/* DIRECTORIO ALUMNOS (RENOVADO: AHORA INCLUYE EMAIL Y EDICION) */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    
+                    {/* COLUMNA IZQUIERDA: CREAR ALUMNO */}
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno (Acceso Portal)</h2>
-                      <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '15px' }}>Registrar aquí permite al alumno ingresar al portal usando su documento de identidad.</p>
+                      <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Registrar Nuevo Alumno</h2>
                       <form onSubmit={handleAgregarAlumno} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Nombre Completo</label>
@@ -1347,29 +1392,63 @@ function App() {
                             <input type="text" placeholder="Ej: 76543210" value={nuevoAlumnoNumDoc} onChange={(e) => setNuevoAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
                         </div>
+                        {/* NUEVO CAMPO: EMAIL */}
+                        <div>
+                          <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Correo Electrónico (Opcional)</label>
+                          <input type="email" placeholder="Ej: ana@correo.com" value={nuevoAlumnoEmail} onChange={(e) => setNuevoAlumnoEmail(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
                         <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#059669', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '5px' }}>Guardar en Directorio</button>
                       </form>
                     </div>
 
+                    {/* COLUMNA DERECHA: DIRECTORIO CON EDICION */}
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '15px' }}>
                         <h2 style={{ margin: 0, fontSize: '20px', color: '#374151' }}>👥 Alumnos en Directorio</h2>
                       </div>
                       <input type="text" placeholder="🔍 Buscar por nombre o número de documento..." value={busquedaDirectorio} onChange={(e) => setBusquedaDirectorio(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', marginBottom: '15px', boxSizing: 'border-box' }} />
+                      
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
                         {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
-                          <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
-                              <span style={{ fontSize: '11px', color: '#6b7280' }}>{alum.tipoDoc || 'DOC'}: {alum.numDoc || '--'}</span>
+                          
+                          editandoAlumnoId === alum.id ? (
+                            // MODO EDICIÓN
+                            <div key={alum.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
+                              <p style={{margin: '0 0 5px 0', fontSize: '13px', color: '#b45309', fontWeight: 'bold'}}>✏️ Editando Perfil</p>
+                              <input type="text" value={editAlumnoNombre} onChange={e=>setEditAlumnoNombre(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', fontSize: '14px'}} placeholder="Nombre completo" />
+                              <div style={{ display: 'flex', gap: '10px' }}>
+                                <select value={editAlumnoTipoDoc} onChange={e=>setEditAlumnoTipoDoc(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', width:'30%', fontSize: '13px'}}>
+                                   <option value="DNI">DNI</option><option value="CE">CE</option><option value="Pasaporte">Pasap.</option><option value="RUC">RUC</option><option value="Otro">Otro</option>
+                                </select>
+                                <input type="text" value={editAlumnoNumDoc} onChange={e=>setEditAlumnoNumDoc(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', width:'70%', fontSize: '14px'}} placeholder="Documento" />
+                              </div>
+                              <input type="email" value={editAlumnoEmail} onChange={e=>setEditAlumnoEmail(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', fontSize: '14px'}} placeholder="Correo electrónico (Opcional)" />
+                              <div style={{display:'flex', gap:'10px', marginTop:'5px'}}>
+                                <button onClick={() => handleActualizarAlumno(alum.id, alum.nombre)} style={{flex:1, background:'#10b981', color:'white', border:'none', padding:'10px', borderRadius:'6px', fontWeight:'bold', cursor:'pointer'}}>Guardar Cambios</button>
+                                <button onClick={() => setEditandoAlumnoId(null)} style={{flex:1, background:'#ef4444', color:'white', border:'none', padding:'10px', borderRadius:'6px', fontWeight:'bold', cursor:'pointer'}}>Cancelar</button>
+                              </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              <button onClick={() => handleToggleActivoAlumno(alum.id, alum.activo !== false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', color: alum.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}>
-                                {alum.activo !== false ? 'Dar de baja' : 'Reactivar'}
-                              </button>
-                              <button onClick={() => handleEliminarAlumno(alum.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
+                          ) : (
+                            // MODO LECTURA NORMAL
+                            <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
+                                <span style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>{alum.tipoDoc || 'DOC'}: <strong style={{color: alum.numDoc === 'PENDIENTE' ? '#ef4444' : 'inherit'}}>{alum.numDoc || '--'}</strong></span>
+                                {alum.email && <span style={{ fontSize: '10px', color: '#3b82f6', marginTop: '2px' }}>📧 {alum.email}</span>}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {/* BOTÓN LAPIZ */}
+                                <button onClick={() => {
+                                  setEditandoAlumnoId(alum.id); setEditAlumnoNombre(alum.nombre); setEditAlumnoTipoDoc(alum.tipoDoc || 'DNI'); setEditAlumnoNumDoc(alum.numDoc); setEditAlumnoEmail(alum.email || '');
+                                }} style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '14px' }} title="Editar Alumno">✏️</button>
+                                
+                                <button onClick={() => handleToggleActivoAlumno(alum.id, alum.activo !== false)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', color: alum.activo !== false ? '#ef4444' : '#10b981', fontWeight: '600' }}>
+                                  {alum.activo !== false ? 'Dar de baja' : 'Reactivar'}
+                                </button>
+                                <button onClick={() => handleEliminarAlumno(alum.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
+                              </div>
                             </div>
-                          </div>
+                          )
                         ))}
                         {alumnosFirebase.filter(a => (a.nombre||'').toLowerCase().includes(busquedaDirectorio.toLowerCase()) || (a.numDoc||'').includes(busquedaDirectorio)).length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>No hay resultados de búsqueda.</p>}
                       </div>
@@ -1421,7 +1500,7 @@ function App() {
                 </div>
               )}
 
-              {/* FINANZAS (REPARADO: MUESTRA SOLO ALUMNOS ACTIVOS EN DEUDAS) */}
+              {/* FINANZAS */}
               {adminTab === 'finanzas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1498,7 +1577,7 @@ function App() {
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Alumno</label>
                           <select value={nuevoPagoAlumno} onChange={(e) => setNuevoPagoAlumno(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', backgroundColor: 'white', boxSizing: 'border-box' }}>
                             <option value="">-- Seleccionar --</option>
-                            {todosLosAlumnos.map((alum, idx) => (<option key={idx} value={alum}>{alum}</option>))}
+                            {alumnosActivos.map((alum, idx) => (<option key={idx} value={alum}>{alum}</option>))}
                           </select>
                         </div>
                         <div>
@@ -1604,7 +1683,7 @@ function App() {
                 </div>
               )}
 
-              {/* CLASES (AHORA CON BOTÓN EDITAR) */}
+              {/* CLASES CON BUSCADOR IN-LINE */}
               {adminTab === 'clases' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
@@ -1697,7 +1776,6 @@ function App() {
                             <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId ? clase.profesorId.substring(0,5) : 'N/A'}...</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            {/* NUEVO BOTON EDITAR CLASE */}
                             <button onClick={() => {
                                 setNuevaClaseTitulo(clase.titulo); setNuevaClaseCurso(clase.curso); setNuevaClaseTarifa(clase.tarifa); setNuevaClaseDias(clase.dias); setNuevaClaseHorario(clase.horario); setNuevaClaseProfesorId(clase.profesorId); setEstudiantesSeleccionados(clase.estudiantes || []); setEditandoClaseId(clase.id);
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1788,12 +1866,17 @@ function App() {
     }
     const promedioGrupo = countNotas > 0 ? (totalNotas / countNotas).toFixed(1) : '--';
 
+    // NUEVO FILTRO PARA EXAMEN: Solo alumnos de ESTE profesor
+    const misClasesProfesor = clasesFirebase.filter(c => c.profesorId === profesorSeleccionado.id);
+    const misAlumnos = Array.from(new Set(misClasesProfesor.flatMap(c => c.estudiantes || []))).sort();
+
     return (
       <>
         {estilosGlobales}
         {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos obligatorios'}</h4></div></div>)}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
+        {/* MODAL PARA EXAMEN FINAL */}
         {mostrarModalExamen && (
           <>
             <div onClick={() => setMostrarModalExamen(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
@@ -1809,10 +1892,10 @@ function App() {
                 </div>
                 <div>
                   <label style={{ fontSize: '13px', color: '#374151', fontWeight: '600', marginBottom: '6px', display: 'block' }}>Buscar Alumno</label>
-                  <input type="text" placeholder="Escribe para filtrar..." value={busquedaAlumnoExamen} onChange={e => setBusquedaAlumnoExamen(e.target.value)} className="input-flotante" style={{width:'100%', padding: '8px', borderRadius: '8px', border: '1px solid #d1d5db', marginBottom: '5px', boxSizing: 'border-box', fontSize: '12px'}}/>
+                  <input type="text" placeholder="Escribe para filtrar tus alumnos..." value={busquedaAlumnoExamen} onChange={e => setBusquedaAlumnoExamen(e.target.value)} className="input-flotante" style={{width:'100%', padding: '8px', borderRadius: '8px', border: '1px solid #d1d5db', marginBottom: '5px', boxSizing: 'border-box', fontSize: '12px'}}/>
                   <select value={examenAlumno} onChange={e => setExamenAlumno(e.target.value)} className="input-flotante" style={{width:'100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', boxSizing: 'border-box'}}>
                     <option value="">-- Seleccionar Alumno --</option>
-                    {todosLosAlumnos.filter(a => a.toLowerCase().includes(busquedaAlumnoExamen.toLowerCase())).map((a,i) => <option key={i} value={a}>{a}</option>)}
+                    {misAlumnos.filter(a => a.toLowerCase().includes(busquedaAlumnoExamen.toLowerCase())).map((a,i) => <option key={i} value={a}>{a}</option>)}
                   </select>
                 </div>
                 <div>
@@ -2030,7 +2113,7 @@ function App() {
                                   <td style={{ padding: '10px', color: colorEstado, fontWeight: 'bold' }}>{estado.replace('-', ' ')}</td>
                                   <td style={{ padding: '10px' }}>{notaCol}</td>
                                   <td style={{ padding: '10px', textAlign: 'center' }}>
-                                    {/* BOTÓN EDITAR EN PROFESOR (NUEVO) */}
+                                    {/* BOTÓN EDITAR EN PROFESOR */}
                                     <button onClick={() => {
                                         setFechaClase(reg.fecha || ''); setHorasClase(reg.horas || ''); setAsistencia(reg.asistencia || {}); setNotas(reg.notas || {}); setObsIndividual(reg.observacionesIndividuales || {}); setObsGeneral(reg.observacionGeneral || ''); setEditandoRegistroId(reg.id);
                                         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2057,9 +2140,6 @@ function App() {
     )
   }
 
-  // ==========================================
-  // VISTA 7: SELECCIÓN DE PROFESORES DESPUES DE LOGIN STAFF
-  // ==========================================
   if (accesoGlobal && !vistaAdmin && !profesorSeleccionado) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 20px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', backgroundColor: '#f4f6f8' }}>
@@ -2116,12 +2196,6 @@ function App() {
               </div>
             </div>
           ))}
-          {profesores.filter(p => p.activo !== false).length === 0 && (
-            <div style={{ padding: '20px', color: '#6b7280', backgroundColor: 'white', borderRadius: '12px', border: '1px dashed #d1d5db', width: '100%', maxWidth: '320px' }}>
-              <p style={{ margin: 0 }}>No hay profesores registrados.</p>
-              <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>Usa el <strong>Panel Admin</strong> arriba a la derecha para agregar uno.</p>
-            </div>
-          )}
         </div>
       </div>
     )
