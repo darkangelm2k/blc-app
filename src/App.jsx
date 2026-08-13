@@ -186,16 +186,20 @@ function App() {
     .map(a => a.nombre)
     .sort((a, b) => String(a).localeCompare(String(b)));
 
+  // BLINDAJE MATEMÁTICO
   const getPromedio = (notasDato) => {
     if (!notasDato) return '--';
-    if (typeof notasDato === 'string' || typeof notasDato === 'number') return parseFloat(notasDato).toFixed(1);
+    if (typeof notasDato === 'string' || typeof notasDato === 'number') {
+       const p = parseFloat(notasDato);
+       return isNaN(p) ? '--' : p.toFixed(1);
+    }
     const vals = Object.values(notasDato).map(Number).filter(n => !isNaN(n) && n > 0);
     return vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '--';
   }
 
   const formatNotasStr = (n) => {
     if (!n) return '--';
-    if (typeof n === 'string' || typeof n === 'number') return n;
+    if (typeof n === 'string' || typeof n === 'number') return String(n);
     const prom = getPromedio(n);
     return `${prom} (O:${n.oral||'-'} G:${n.grammar||'-'} R:${n.reading||'-'} L:${n.listening||'-'} W:${n.writing||'-'})`;
   }
@@ -412,7 +416,7 @@ function App() {
     const startY = await agregarEncabezadoPDF(doc, "Resumen de Pago Docente", [`Profesor: ${profesorSeleccionado?.nombre || 'Docente'}`, `Periodo: ${nombreMes}`, `Centro: Boss Language Center SAC`]);
     const registrosMes = registrosFirebase.filter(reg => {
       if(reg.profesor !== profesorSeleccionado?.nombre) return false;
-      if(mesPlanilla === "") return true;
+      if(!mesPlanilla) return true;
       const f = parseFechaUniversal(reg.fecha);
       return f.startsWith(mesPlanilla);
     });
@@ -611,6 +615,7 @@ function App() {
     return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
   }
 
+  // BUSCADOR MEJORADO Y ANTI-ERRORES DE FORMATO
   const resultadosBusqueda = registrosFirebase.filter(reg => {
     if (String(terminoBusqueda).trim() === '') return false;
     
@@ -1421,6 +1426,7 @@ function App() {
                             <input type="text" placeholder="Ej: 76543210" value={nuevoAlumnoNumDoc} onChange={(e) => setNuevoAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
                         </div>
+                        {/* CAMPO EMAIL */}
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Correo Electrónico (Opcional)</label>
                           <input type="email" placeholder="Ej: ana@correo.com" value={nuevoAlumnoEmail} onChange={(e) => setNuevoAlumnoEmail(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1440,6 +1446,7 @@ function App() {
                         {alumnosFirebase.filter(a => String(a.nombre||'').toLowerCase().includes(String(busquedaDirectorio).toLowerCase()) || String(a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
                           
                           editandoAlumnoId === alum.id ? (
+                            // MODO EDICIÓN
                             <div key={alum.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
                               <p style={{margin: '0 0 5px 0', fontSize: '13px', color: '#b45309', fontWeight: 'bold'}}>✏️ Editando Perfil</p>
                               <input type="text" value={editAlumnoNombre} onChange={e=>setEditAlumnoNombre(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', fontSize: '14px'}} placeholder="Nombre completo" />
@@ -1456,6 +1463,7 @@ function App() {
                               </div>
                             </div>
                           ) : (
+                            // MODO LECTURA NORMAL
                             <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
@@ -1463,6 +1471,7 @@ function App() {
                                 {alum.email && <span style={{ fontSize: '10px', color: '#3b82f6', marginTop: '2px' }}>📧 {alum.email}</span>}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {/* BOTÓN LAPIZ */}
                                 <button onClick={() => {
                                   setEditandoAlumnoId(alum.id); setEditAlumnoNombre(alum.nombre); setEditAlumnoTipoDoc(alum.tipoDoc || 'DNI'); setEditAlumnoNumDoc(alum.numDoc); setEditAlumnoEmail(alum.email || '');
                                 }} style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '14px' }} title="Editar Alumno">✏️</button>
@@ -1554,7 +1563,7 @@ function App() {
                     </div>
                     <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', borderLeft: `6px solid ${finanzas.balance >= 0 ? '#3b82f6' : '#f97316'}` }}>
                       <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#6b7280', textTransform: 'uppercase', fontWeight: 'bold' }}>Balance Neto</p>
-                      <h3 style={{ margin: 0, fontSize: '24px', color: finanzas.balance >= 0 ? '#1d4ed8' : '#c2410c' }}>S/. {finanzas.balance.toFixed(2)}</h3>
+                      <h3 style={{ margin: '0', fontSize: '24px', color: finanzas.balance >= 0 ? '#1d4ed8' : '#c2410c' }}>S/. {finanzas.balance.toFixed(2)}</h3>
                       <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#6b7280' }}>Resultado Operativo</p>
                     </div>
                   </div>
