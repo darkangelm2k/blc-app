@@ -120,9 +120,12 @@ function App() {
   }
 
   const formatMesTexto = (yyyy_mm) => {
-      const [y, m] = String(yyyy_mm).split('-');
+      if (!yyyy_mm || typeof yyyy_mm !== 'string') return '';
+      const parts = yyyy_mm.split('-');
+      if (parts.length < 2) return yyyy_mm;
+      const [y, m] = parts;
       const nombresMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-      return `${nombresMeses[parseInt(m)-1]} ${y}`;
+      return `${nombresMeses[parseInt(m)-1] || ''} ${y}`;
   }
 
   const triggerError = (msg) => {
@@ -130,7 +133,6 @@ function App() {
     setTimeout(() => { setMostrarError(false); setMensajeError(''); }, 3500);
   }
 
-  // AUTO-FORMATEO DE NOMBRES (Mejora: Title Case)
   const formatearNombre = (str) => {
     if (!str || typeof str !== 'string') return '';
     return str.trim().toLowerCase().split(' ').map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : '').join(' ');
@@ -143,7 +145,7 @@ function App() {
         setProfesores(profesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
         const alumnosSnap = await getDocs(collection(db, "alumnos"));
-        setAlumnosFirebase(alumnosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||'')));
+        setAlumnosFirebase(alumnosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
         const clasesSnap = await getDocs(collection(db, "clases"));
         setClasesFirebase(clasesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -163,7 +165,6 @@ function App() {
     cargarDatos();
   }, [mensajeExito]); 
 
-  // BLINDAJE DE SEGURIDAD 1: Fechas siempre procesadas correctamente
   const parseFechaUniversal = (fechaStr) => {
     if(!fechaStr || typeof fechaStr !== 'string') return '';
     if(fechaStr.includes('/')) {
@@ -175,7 +176,6 @@ function App() {
     return fechaStr; 
   }
 
-  // BLINDAJE DE SEGURIDAD 2: Filtrado forzado de cadenas de texto
   const todosLosAlumnos = alumnosFirebase
     .map(a => a.nombre)
     .filter(Boolean)
@@ -276,7 +276,7 @@ function App() {
         }
       }
       setTextoImportar(''); setAlumnoImportar(''); setMensajeExito(`¡Migración perfecta! ${nuevosAlumnosRegistrados} creados, ${registrosGuardados} guardados.`); setTimeout(() => setMensajeExito(''), 6000);
-      const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||''))));
+      const alumnosSnap = await getDocs(collection(db, "alumnos")); setAlumnosFirebase(alumnosSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { triggerError('Error al importar. Revisa el formato de los datos copiados.'); } finally { setProcesandoImportacion(false); }
   }
@@ -298,7 +298,6 @@ function App() {
     } catch (err) { triggerError("Error al guardar el examen. Revisa tu conexión."); }
   }
 
-  // CASCADA DE EDICIÓN (SINCRONIZACIÓN PERFECTA)
   const handleActualizarAlumno = async (id, oldName) => {
     if(!editAlumnoNombre || !editAlumnoNumDoc) { triggerError("El nombre y el documento son obligatorios."); return; }
     
@@ -397,6 +396,14 @@ function App() {
 
     autoTable(doc, { startY: startY, head: [['Fecha', 'Clase', 'Asist.', 'Promedio y Detalles', 'Observaciones']], body: tableData, theme: 'grid', headStyles: { fillColor: [37, 99, 235] }, styles: { fontSize: 8, cellPadding: 3 }});
     doc.save(`Libreta_${String(alumnoSeleccionado || 'Alumno').replace(/\s/g, '_')}.pdf`);
+  }
+
+  const descargarRespaldoNuclear = () => {
+    const backupData = { fechaGeneracion: new Date().toISOString(), centro: "Boss Language Center SAC", baseDeDatos: { profesores: profesores, alumnos: alumnosFirebase, clases: clasesFirebase, registros_academicos: registrosFirebase, pagos_ingresos: pagosFirebase, movimientos_financieros: movimientosExtra }};
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url;
+    link.download = `Respaldo_Nuclear_BLC_${new Date().toISOString().split('T')[0]}.json`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setMensajeExito('¡Backup Nuclear descargado con éxito! 💽✅'); setTimeout(() => setMensajeExito(''), 4000);
   }
 
   const generarPDFPlanilla = async () => {
@@ -604,7 +611,6 @@ function App() {
     return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
   }
 
-  // BUSCADOR MEJORADO Y ANTI-ERRORES DE FORMATO
   const resultadosBusqueda = registrosFirebase.filter(reg => {
     if (String(terminoBusqueda).trim() === '') return false;
     
@@ -838,9 +844,6 @@ function App() {
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
-  // ==========================================
-  // ESTILOS GLOBALES
-  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -909,8 +912,6 @@ function App() {
             <span style={{ fontSize: '40px' }}>💼</span> Acceso Docentes / Staff <span style={{ fontSize: '13px', fontWeight: 'normal', opacity: 0.9 }}>Gestión académica interna</span>
           </button>
         </div>
-        
-        {/* LA CEREZA DEL PASTEL: VERSIÓN COMBINADA */}
         <div style={{ position: 'absolute', bottom: '20px', color: '#9ca3af', fontSize: '13px', fontWeight: '500', letterSpacing: '0.5px' }}>
            Versión 3.0: First Class & Crispy Edition 🌟🍗
         </div>
@@ -948,7 +949,7 @@ function App() {
 
   if (alumnoSeleccionado) {
     const registrosAlumnoRaw = registrosFirebase.filter(reg => reg.asistencia && reg.asistencia[alumnoSeleccionado]);
-    const pagosAlumnoRaw = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => new Date(b.fechaRegistro) - new Date(a.fechaRegistro));
+    const pagosAlumnoRaw = pagosFirebase.filter(p => p.alumno === alumnoSeleccionado).sort((a,b) => (new Date(parseFechaUniversal(b.fechaRegistro)).getTime()||0) - (new Date(parseFechaUniversal(a.fechaRegistro)).getTime()||0));
 
     const registrosAlumno = registrosAlumnoRaw.filter(r => {
         if(mesFiltroAlumno === 'todo') return true;
@@ -957,7 +958,7 @@ function App() {
         return f.startsWith(mesFiltroAlumno);
     });
     
-    const pagosAlumno = pagosAlumnoRaw.filter(p => mesFiltroAlumno === 'todo' || (['2026', '2025', '2024'].includes(mesFiltroAlumno) ? p.mes?.startsWith(mesFiltroAlumno) : p.mes === mesFiltroAlumno));
+    const pagosAlumno = pagosAlumnoRaw.filter(p => mesFiltroAlumno === 'todo' || (['2026', '2025', '2024'].includes(mesFiltroAlumno) ? String(p.mes||'').startsWith(mesFiltroAlumno) : p.mes === mesFiltroAlumno));
 
     let totalAsistencias = 0; let totalFaltas = 0; let notasList = [];
     let sumas = { oral: 0, grammar: 0, reading: 0, listening: 0, writing: 0 };
@@ -983,11 +984,11 @@ function App() {
     });
 
     const dataRadar = [
-      { skill: '🗣️ Oral', A: counts.oral > 0 ? (sumas.oral/counts.oral).toFixed(1) : 0, fullMark: 20 },
-      { skill: '✍️ Grammar', A: counts.grammar > 0 ? (sumas.grammar/counts.grammar).toFixed(1) : 0, fullMark: 20 },
-      { skill: '📖 Reading', A: counts.reading > 0 ? (sumas.reading/counts.reading).toFixed(1) : 0, fullMark: 20 },
-      { skill: '🎧 Listening', A: counts.listening > 0 ? (sumas.listening/counts.listening).toFixed(1) : 0, fullMark: 20 },
-      { skill: '📝 Writing', A: counts.writing > 0 ? (sumas.writing/counts.writing).toFixed(1) : 0, fullMark: 20 },
+      { skill: '🗣️ Oral', A: counts.oral > 0 ? parseFloat((sumas.oral/counts.oral).toFixed(1)) : 0, fullMark: 20 },
+      { skill: '✍️ Grammar', A: counts.grammar > 0 ? parseFloat((sumas.grammar/counts.grammar).toFixed(1)) : 0, fullMark: 20 },
+      { skill: '📖 Reading', A: counts.reading > 0 ? parseFloat((sumas.reading/counts.reading).toFixed(1)) : 0, fullMark: 20 },
+      { skill: '🎧 Listening', A: counts.listening > 0 ? parseFloat((sumas.listening/counts.listening).toFixed(1)) : 0, fullMark: 20 },
+      { skill: '📝 Writing', A: counts.writing > 0 ? parseFloat((sumas.writing/counts.writing).toFixed(1)) : 0, fullMark: 20 },
     ];
 
     const asistenciaPorcentaje = totalAsistencias + totalFaltas > 0 ? Math.round((totalAsistencias / (totalAsistencias + totalFaltas))*100) : 0;
@@ -1007,7 +1008,7 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
               <img src="/boss_accredible.png" alt="Logo" style={{ height: '50px' }} />
               <div>
-                <h1 style={{ margin: 0, fontSize: '24px', color: '#111827', textTransform: 'capitalize' }}>Hola, {alumnoSeleccionado}</h1>
+                <h1 style={{ margin: 0, fontSize: '24px', color: '#111827', textTransform: 'capitalize' }}>Hola, {String(alumnoSeleccionado)}</h1>
                 <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>Portal Académico y Financiero</p>
               </div>
             </div>
@@ -1106,7 +1107,7 @@ function App() {
                   <div key={pago.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '14px', fontWeight: '600', color: '#374151' }}>Mes: {pago.mes}</span>
-                      <span style={{ fontSize: '11px', color: '#9ca3af' }}>{new Date(pago.fechaRegistro).toLocaleDateString()}</span>
+                      <span style={{ fontSize: '11px', color: '#9ca3af' }}>{pago.fechaRegistro ? new Date(pago.fechaRegistro).toLocaleDateString() : '--'}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                       <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#059669' }}>S/. {Number(pago.monto || 0).toFixed(2)}</span>
@@ -1315,7 +1316,7 @@ function App() {
                       </div>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
-                      {terminoBusqueda.trim() === '' ? (
+                      {String(terminoBusqueda).trim() === '' ? (
                         <div className="grid-resp-2" style={{ marginTop: '10px' }}>
                           <div style={{ backgroundColor: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '12px', padding: '20px' }}>
                             <h3 style={{ margin: '0 0 15px 0', color: '#be123c', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚨 Alerta de Riesgo (Faltas)</h3>
@@ -1390,7 +1391,7 @@ function App() {
                 </div>
               )}
 
-              {/* DIRECTORIO ALUMNOS (RENOVADO: AHORA INCLUYE EMAIL Y EDICION) */}
+              {/* DIRECTORIO ALUMNOS */}
               {adminTab === 'directorio_alumnos' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div className="grid-resp-2">
@@ -1420,7 +1421,6 @@ function App() {
                             <input type="text" placeholder="Ej: 76543210" value={nuevoAlumnoNumDoc} onChange={(e) => setNuevoAlumnoNumDoc(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
                           </div>
                         </div>
-                        {/* NUEVO CAMPO: EMAIL */}
                         <div>
                           <label style={{ fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '4px', display: 'block' }}>Correo Electrónico (Opcional)</label>
                           <input type="email" placeholder="Ej: ana@correo.com" value={nuevoAlumnoEmail} onChange={(e) => setNuevoAlumnoEmail(e.target.value)} className="input-flotante" style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', boxSizing: 'border-box' }} />
@@ -1440,7 +1440,6 @@ function App() {
                         {alumnosFirebase.filter(a => String(a.nombre||'').toLowerCase().includes(String(busquedaDirectorio).toLowerCase()) || String(a.numDoc||'').includes(busquedaDirectorio)).map(alum => (
                           
                           editandoAlumnoId === alum.id ? (
-                            // MODO EDICIÓN
                             <div key={alum.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#fffbeb', padding: '16px', borderRadius: '12px', border: '1px solid #fde68a' }}>
                               <p style={{margin: '0 0 5px 0', fontSize: '13px', color: '#b45309', fontWeight: 'bold'}}>✏️ Editando Perfil</p>
                               <input type="text" value={editAlumnoNombre} onChange={e=>setEditAlumnoNombre(e.target.value)} className="input-flotante" style={{padding:'10px', borderRadius:'6px', border:'1px solid #d1d5db', fontSize: '14px'}} placeholder="Nombre completo" />
@@ -1457,7 +1456,6 @@ function App() {
                               </div>
                             </div>
                           ) : (
-                            // MODO LECTURA NORMAL
                             <div key={alum.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9fafb', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', opacity: alum.activo !== false ? 1 : 0.5 }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontSize: '14px', fontWeight: '600', color: alum.activo !== false ? '#374151' : '#9ca3af', textDecoration: alum.activo !== false ? 'none' : 'line-through', textTransform: 'capitalize' }}>{alum.nombre || 'Desconocido'}</span>
@@ -1465,7 +1463,6 @@ function App() {
                                 {alum.email && <span style={{ fontSize: '10px', color: '#3b82f6', marginTop: '2px' }}>📧 {alum.email}</span>}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                {/* BOTÓN LAPIZ */}
                                 <button onClick={() => {
                                   setEditandoAlumnoId(alum.id); setEditAlumnoNombre(alum.nombre); setEditAlumnoTipoDoc(alum.tipoDoc || 'DNI'); setEditAlumnoNumDoc(alum.numDoc); setEditAlumnoEmail(alum.email || '');
                                 }} style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '14px' }} title="Editar Alumno">✏️</button>
