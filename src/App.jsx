@@ -102,9 +102,10 @@ function App() {
   const [examenFecha, setExamenFecha] = useState('')
   const [busquedaAlumnoExamen, setBusquedaAlumnoExamen] = useState('')
 
-  // ==========================================
-  // GENERADOR GLOBAL DE MESES Y AÑOS (2024-2026)
-  // ==========================================
+  // NUEVOS ESTADOS PARA EDICIÓN
+  const [editandoRegistroId, setEditandoRegistroId] = useState(null)
+  const [editandoClaseId, setEditandoClaseId] = useState(null)
+
   const opcionesMesesGlobal = [];
   for(let y=2026; y>=2024; y--) {
       for(let m=12; m>=1; m--) {
@@ -165,6 +166,9 @@ function App() {
     ...alumnosFirebase.map(a => a.nombre || ''),
     ...clasesFirebase.flatMap(c => c.estudiantes || [])
   ])).filter(Boolean).sort();
+
+  // NUEVO FILTRO PARA FINANZAS (SOLO ACTIVOS)
+  const alumnosActivos = alumnosFirebase.filter(a => a.activo !== false).map(a => a.nombre).sort((a, b) => a.localeCompare(b));
 
   const getPromedio = (notasDato) => {
     if (!notasDato) return '--';
@@ -230,7 +234,6 @@ function App() {
         if (columnas.length < 5) continue; 
 
         let fechaCruda = columnas[0].trim();
-        
         if (!fechaCruda.match(/\d{2,4}[-/]\d{1,2}[-/]\d{1,4}/)) continue;
 
         let fecha = fechaCruda.split(' ')[0]; 
@@ -275,6 +278,7 @@ function App() {
       });
       setMensajeExito("¡Examen Final guardado con éxito! 🎓✅"); setTimeout(() => setMensajeExito(''), 4000);
       setMostrarModalExamen(false); setExamenAlumno(''); setExamenNivel(''); setExamenNota(''); setExamenFecha(''); setBusquedaAlumnoExamen('');
+      const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { triggerError("Error al guardar el examen. Revisa tu conexión."); }
   }
 
@@ -559,7 +563,6 @@ function App() {
     return { ingresosPensiones, ingresosExtra, totalIngresos, egresosNomina, egresosExtra, totalEgresos, balance, reservaEmpresa, repartoDaniel, repartoMichael };
   }
 
-  // BUSCADOR MEJORADO (Ahora acepta Fecha Exacta)
   const resultadosBusqueda = registrosFirebase.filter(reg => {
     if (terminoBusqueda.trim() === '') return false;
     
@@ -574,10 +577,10 @@ function App() {
       const matchProfesor = reg.profesor && reg.profesor.toLowerCase().includes(terminoBusqueda.toLowerCase());
       if (!matchProfesor) return false;
     } else if (tipoBusqueda === 'fecha') {
-      // Busca tanto en formato original (12/02/2024) como universal (2024-02-12)
-      const f1 = reg.fecha || '';
-      const f2 = parseFechaUniversal(reg.fecha) || '';
-      if (!f1.includes(terminoBusqueda) && !f2.includes(terminoBusqueda)) return false;
+      const term = terminoBusqueda.trim().toLowerCase().replace(/\s/g, '');
+      const f1 = (reg.fecha || '').toLowerCase().replace(/\s/g, '');
+      const f2 = parseFechaUniversal(reg.fecha).toLowerCase().replace(/\s/g, '');
+      if (!f1.includes(term) && !f2.includes(term)) return false;
     }
 
     if (mesFiltroBusqueda !== 'todo') { 
@@ -676,15 +679,25 @@ function App() {
     } catch (error) { triggerError('Error de conexión'); }
   }
 
+  // ==========================================
+  // HANDLER ACTUALIZADO PARA CREAR O EDITAR CLASE (NUEVO)
+  // ==========================================
   const handleAgregarClase = async (e) => {
     e.preventDefault();
     if (!nuevaClaseTitulo || !nuevaClaseCurso || !nuevaClaseTarifa || estudiantesSeleccionados.length === 0 || !nuevaClaseProfesorId || !nuevaClaseDias || !nuevaClaseHorario) {
       triggerError('Completa todos los campos y selecciona al menos 1 alumno'); return;
     }
     try {
-      await addDoc(collection(db, "clases"), { titulo: nuevaClaseTitulo, curso: nuevaClaseCurso, tarifa: Number(nuevaClaseTarifa), dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: estudiantesSeleccionados, profesorId: nuevaClaseProfesorId, archivada: false });
-      setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setEstudiantesSeleccionados([]); setNuevaClaseProfesorId(''); setBusquedaEstudiantesClase('');
-      setMensajeExito('Clase creada con éxito ✅'); setTimeout(() => setMensajeExito(''), 3000);
+      if (editandoClaseId) {
+        await updateDoc(doc(db, "clases", editandoClaseId), { titulo: nuevaClaseTitulo, curso: nuevaClaseCurso, tarifa: Number(nuevaClaseTarifa), dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: estudiantesSeleccionados, profesorId: nuevaClaseProfesorId });
+        setMensajeExito('Clase actualizada correctamente ✏️✅');
+      } else {
+        await addDoc(collection(db, "clases"), { titulo: nuevaClaseTitulo, curso: nuevaClaseCurso, tarifa: Number(nuevaClaseTarifa), dias: nuevaClaseDias, horario: nuevaClaseHorario, estudiantes: estudiantesSeleccionados, profesorId: nuevaClaseProfesorId, archivada: false });
+        setMensajeExito('Clase creada con éxito ✅');
+      }
+      setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setEstudiantesSeleccionados([]); setNuevaClaseProfesorId(''); setBusquedaEstudiantesClase(''); setEditandoClaseId(null);
+      setTimeout(() => setMensajeExito(''), 3000);
+      const clasesSnap = await getDocs(collection(db, "clases")); setClasesFirebase(clasesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) { triggerError('Error de conexión'); }
   }
 
@@ -742,8 +755,11 @@ function App() {
     } else { setErrorLoginAlumno(true); setTimeout(() => setErrorLoginAlumno(false), 3000); }
   }
 
-  const handleCerrarSesionProfesor = () => { setProfesorSeleccionado(null); setClaseSeleccionada(null); }
+  const handleCerrarSesionProfesor = () => { setProfesorSeleccionado(null); setClaseSeleccionada(null); setEditandoRegistroId(null); }
 
+  // ==========================================
+  // HANDLER ACTUALIZADO PARA CREAR O EDITAR NOTAS (NUEVO)
+  // ==========================================
   const handleGuardarRegistro = async () => {
     let formularioCompleto = true;
     if (fechaClase.trim() === '' || horasClase.trim() === '') formularioCompleto = false;
@@ -755,12 +771,22 @@ function App() {
     });
     if (formularioCompleto) {
       try {
-        await addDoc(collection(db, "registrosClases"), {
-          profesor: profesorSeleccionado?.nombre || 'Docente', clase: claseSeleccionada.titulo, nivel: claseSeleccionada.curso,
-          fecha: fechaClase, horas: Number(horasClase), tarifa: claseSeleccionada.tarifa, asistencia: asistencia, notas: notas, observacionesIndividuales: obsIndividual, observacionGeneral: obsGeneral, fechaRegistro: new Date().toISOString()
-        });
-        setMensajeExito('¡Registro guardado exitosamente! ☁️✅'); setTimeout(() => setMensajeExito(''), 4000);
+        if (editandoRegistroId) {
+          await updateDoc(doc(db, "registrosClases", editandoRegistroId), {
+            fecha: fechaClase, horas: Number(horasClase), tarifa: claseSeleccionada.tarifa, asistencia: asistencia, notas: notas, observacionesIndividuales: obsIndividual, observacionGeneral: obsGeneral
+          });
+          setMensajeExito('¡Registro actualizado exitosamente! ✏️✅');
+          setEditandoRegistroId(null);
+        } else {
+          await addDoc(collection(db, "registrosClases"), {
+            profesor: profesorSeleccionado?.nombre || 'Docente', clase: claseSeleccionada.titulo, nivel: claseSeleccionada.curso,
+            fecha: fechaClase, horas: Number(horasClase), tarifa: claseSeleccionada.tarifa, asistencia: asistencia, notas: notas, observacionesIndividuales: obsIndividual, observacionGeneral: obsGeneral, fechaRegistro: new Date().toISOString()
+          });
+          setMensajeExito('¡Registro guardado exitosamente! ☁️✅');
+        }
+        setTimeout(() => setMensajeExito(''), 4000);
         setAsistencia({}); setNotas({}); setObsIndividual({}); setFechaClase(''); setHorasClase(''); setObsGeneral('');
+        const regSnap = await getDocs(collection(db, "registrosClases")); setRegistrosFirebase(regSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (error) { triggerError('Error al guardar datos. Revisa tu conexión.'); }
     } else { triggerError('Faltan datos por llenar (Fecha, horas o notas).'); }
   }
@@ -770,9 +796,6 @@ function App() {
     return { padding: '8px 12px', borderRadius: '6px', border: `1px solid ${mostrarColor ? colorBorde : '#e5e7eb'}`, backgroundColor: mostrarColor ? colorFondo : '#f9fafb', color: mostrarColor ? colorTexto : '#9ca3af', cursor: 'pointer', fontSize: '13px', fontWeight: '500', transition: 'all 0.2s ease', transform: estaSeleccionado ? 'scale(1.05)' : 'scale(1)', boxShadow: estaSeleccionado ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', opacity: (!estaSeleccionado && algunSeleccionado) ? 0.5 : 1 }
   }
 
-  // ==========================================
-  // ESTILOS GLOBALES
-  // ==========================================
   const estilosGlobales = (
     <style>{`
       body { margin: 0; background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -1203,7 +1226,7 @@ function App() {
                           <option value="profesor">👨‍🏫 Profesor</option>
                           <option value="fecha">📅 Fecha Exacta</option>
                         </select>
-                        <input type="text" placeholder={tipoBusqueda === 'fecha' ? "Ej: 12/02 o 2024-02" : "Buscar..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
+                        <input type="text" placeholder={tipoBusqueda === 'fecha' ? "Ej: 12/02 o 2024" : "Buscar..."} value={terminoBusqueda} onChange={(e) => setTerminoBusqueda(e.target.value)} className="input-flotante" style={{ flex: 1, minWidth: '200px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }} />
                         <select value={mesFiltroBusqueda} onChange={(e) => setMesFiltroBusqueda(e.target.value)} className="input-flotante" style={{ width: '160px', padding: '12px 16px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}>
                           <option value="todo">Historial Completo</option>
                           <option value="2026">Todo el 2026 (Anual)</option>
@@ -1275,6 +1298,13 @@ function App() {
                                         <td style={{ padding: '12px', color: colorEstado, fontWeight: '600', textTransform: 'capitalize' }}>{(estado||'--').replace('-', ' ')}</td><td style={{ padding: '12px', fontWeight: 'bold' }}>{notaCol}</td>
                                         <td style={{ padding: '12px', color: '#4b5563', maxWidth: '200px' }}>{observacion}</td>
                                         <td style={{ padding: '12px', textAlign: 'center' }}>
+                                          {/* BOTÓN EDITAR EN ADMIN (NUEVO) */}
+                                          <button onClick={() => {
+                                             setProfesorSeleccionado(profesores.find(p => p.nombre === reg.profesor));
+                                             setClaseSeleccionada(clasesFirebase.find(c => c.titulo === reg.clase));
+                                             setFechaClase(reg.fecha || ''); setHorasClase(reg.horas || ''); setAsistencia(reg.asistencia || {}); setNotas(reg.notas || {}); setObsIndividual(reg.observacionesIndividuales || {}); setObsGeneral(reg.observacionGeneral || ''); setEditandoRegistroId(reg.id);
+                                             window.scrollTo({ top: 0, behavior: 'smooth' });
+                                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '5px' }} title="Editar notas">✏️</button>
                                           <button onClick={() => handleEliminarRegistroClase(reg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Borrar registro completo de esta sesión">🗑️</button>
                                         </td>
                                     </tr>
@@ -1391,6 +1421,7 @@ function App() {
                 </div>
               )}
 
+              {/* FINANZAS (REPARADO: MUESTRA SOLO ALUMNOS ACTIVOS EN DEUDAS) */}
               {adminTab === 'finanzas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1446,7 +1477,7 @@ function App() {
                     <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
                       <h3 style={{ margin: '0 0 15px 0', color: '#374151', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>🚦 Estado de Cuenta de Alumnos ({mesFinanzas})</h3>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
-                        {todosLosAlumnos.map(alum => {
+                        {alumnosActivos.map(alum => {
                           const haPagado = pagosFirebase.some(p => p.alumno === alum && p.mes === mesFinanzas);
                           return (
                             <div key={alum} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${haPagado ? '#bbf7d0' : '#fecdd3'}`, backgroundColor: haPagado ? '#f0fdf4' : '#fff1f2' }}>
@@ -1573,11 +1604,13 @@ function App() {
                 </div>
               )}
 
-              {/* CLASES CON BUSCADOR IN-LINE */}
+              {/* CLASES (AHORA CON BOTÓN EDITAR) */}
               {adminTab === 'clases' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'aparecerFade 0.3s ease' }}>
                   <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                    <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>➕ Crear Nuevo Grupo o Clase</h2>
+                    <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', color: '#374151', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {editandoClaseId ? '✏️ Editando Clase' : '➕ Crear Nuevo Grupo o Clase'}
+                    </h2>
                     <form onSubmit={handleAgregarClase} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                       <div style={{ display: 'flex', gap: '15px' }}>
                         <div style={{ flex: 1 }}>
@@ -1638,7 +1671,15 @@ function App() {
                           )}
                         </div>
                       </div>
-                      <button type="submit" className="btn-flotante" style={{ padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer', marginTop: '10px' }}>Crear y Asignar Clase</button>
+                      
+                      <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                        <button type="submit" className="btn-flotante" style={{ flex: 1, padding: '14px', borderRadius: '8px', border: 'none', backgroundColor: editandoClaseId ? '#10b981' : '#2563eb', color: 'white', fontWeight: '600', cursor: 'pointer' }}>
+                          {editandoClaseId ? 'Actualizar Datos de Clase' : 'Crear y Asignar Clase'}
+                        </button>
+                        {editandoClaseId && (
+                          <button type="button" onClick={() => {setEditandoClaseId(null); setNuevaClaseTitulo(''); setNuevaClaseCurso(''); setNuevaClaseTarifa(''); setNuevaClaseDias(''); setNuevaClaseHorario(''); setEstudiantesSeleccionados([]); setNuevaClaseProfesorId('');}} className="btn-flotante" style={{ padding: '14px 24px', borderRadius: '8px', border: 'none', backgroundColor: '#ef4444', color: 'white', fontWeight: '600', cursor: 'pointer' }}>Cancelar</button>
+                        )}
+                      </div>
                     </form>
                   </div>
 
@@ -1656,6 +1697,12 @@ function App() {
                             <span style={{ fontSize: '11px', color: '#9ca3af', marginTop: '4px' }}>Profesor asignado (ID): {clase.profesorId ? clase.profesorId.substring(0,5) : 'N/A'}...</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            {/* NUEVO BOTON EDITAR CLASE */}
+                            <button onClick={() => {
+                                setNuevaClaseTitulo(clase.titulo); setNuevaClaseCurso(clase.curso); setNuevaClaseTarifa(clase.tarifa); setNuevaClaseDias(clase.dias); setNuevaClaseHorario(clase.horario); setNuevaClaseProfesorId(clase.profesorId); setEstudiantesSeleccionados(clase.estudiantes || []); setEditandoClaseId(clase.id);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px', cursor: 'pointer', fontSize: '12px' }} title="Editar Alumnos o Datos">✏️</button>
+
                             <button onClick={() => handleToggleArchivarClase(clase.id, clase.archivada)} className="btn-flotante" style={{ background: 'white', border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', color: clase.archivada ? '#10b981' : '#f59e0b', fontWeight: '600' }}>{clase.archivada ? 'Desarchivar' : 'Archivar'}</button>
                             <button onClick={() => handleEliminarClase(clase.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Eliminar Permanente">🗑️</button>
                           </div>
@@ -1747,7 +1794,6 @@ function App() {
         {mostrarError && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ef4444', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>⚠️</span><div><h4 style={{ margin: 0 }}>{mensajeError || 'Faltan datos obligatorios'}</h4></div></div>)}
         {mensajeExito && (<div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', color: 'white', padding: '16px 24px', borderRadius: '12px', zIndex: 1000, display: 'flex', alignItems: 'center', gap: '15px' }}><span style={{ fontSize: '24px' }}>☁️</span><div><h4 style={{ margin: 0 }}>{mensajeExito}</h4></div></div>)}
 
-        {/* MODAL PARA EXAMEN FINAL (NUEVO) */}
         {mostrarModalExamen && (
           <>
             <div onClick={() => setMostrarModalExamen(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 999 }}></div>
@@ -1866,27 +1912,26 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}></div>
                     <div style={{ flex: 2, textAlign: 'center' }}>
-                      <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>Registro de Clase</h1>
+                      <h1 style={{ margin: 0, color: '#111827', fontSize: '24px' }}>
+                        {editandoRegistroId ? '✏️ Editando Notas Anteriores' : 'Registro de Clase'}
+                      </h1>
                       <p style={{ margin: '8px 0 0 0', color: '#6b7280', fontSize: '15px' }}>Clase seleccionada: <strong style={{ color: '#374151' }}>{claseSeleccionada.titulo}</strong></p>
                     </div>
                     <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
                       <button onClick={() => setMostrarModalExportar(true)} className="btn-flotante" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px' }}>📄 Exportar Reporte</button>
                     </div>
                   </div>
+                  
+                  {editandoRegistroId && (
+                    <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', padding: '10px', borderRadius: '8px', textAlign: 'center', marginBottom: '10px' }}>
+                      <span style={{ color: '#d97706', fontSize: '13px', fontWeight: 'bold' }}>⚠️ Estás modificando un registro del pasado.</span>
+                      <button onClick={() => {setEditandoRegistroId(null); setAsistencia({}); setNotas({}); setObsIndividual({}); setFechaClase(''); setHorasClase(''); setObsGeneral('');}} style={{ background: 'none', border: 'none', color: '#b45309', textDecoration: 'underline', cursor: 'pointer', marginLeft: '10px', fontSize: '13px' }}>Cancelar edición</button>
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
-                    {editandoCurso ? (
-                      <>
-                        <input type="text" value={nuevoNombreCurso} onChange={(e) => setNuevoNombreCurso(e.target.value)} className="input-flotante" style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', outline: 'none', fontSize: '13px', width: '200px' }} />
-                        <button onClick={handleActualizarCurso} style={{ background: '#10b981', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Guardar</button>
-                        <button onClick={() => setEditandoCurso(false)} style={{ background: '#ef4444', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Cancelar</button>
-                      </>
-                    ) : (
-                      <>
-                        <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
-                        <button onClick={() => {setNuevoNombreCurso(claseSeleccionada.curso); setEditandoCurso(true);}} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', fontSize: '14px', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center' }}>✏️</button>
-                        <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
-                      </>
-                    )}
+                    <span style={{ fontSize: '14px', color: '#0369a1', backgroundColor: '#e0f2fe', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>Nivel actual: {claseSeleccionada.curso}</span>
+                    <span style={{ fontSize: '14px', color: '#047857', backgroundColor: '#d1fae5', padding: '6px 16px', borderRadius: '12px', fontWeight: '600' }}>📈 Promedio Histórico: {promedioGrupo}</span>
                   </div>
                 </div>
 
@@ -1952,7 +1997,54 @@ function App() {
                   <label style={{ display: 'block', marginBottom: '12px', fontWeight: '500', color: '#374151', fontSize: '14px', textAlign: 'center' }}>Observaciones Generales</label>
                   <textarea className="input-flotante" rows="3" placeholder="Detalles sobre temas vistos, tareas, etc..." value={obsGeneral} onChange={(e) => setObsGeneral(e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}></textarea>
                 </div>
-                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>Guardar Registro Completo</button>
+                
+                <button onClick={handleGuardarRegistro} className="btn-flotante" style={{ width: '100%', padding: '16px', borderRadius: '8px', border: 'none', backgroundColor: editandoRegistroId ? '#10b981' : '#2563eb', color: 'white', fontWeight: '600', fontSize: '16px', cursor: 'pointer' }}>
+                  {editandoRegistroId ? '💾 Guardar Cambios (Sobrescribir)' : 'Guardar Registro Completo'}
+                </button>
+
+                {/* HISTORIAL DEL PROFESOR CON BOTON EDITAR */}
+                <div style={{ marginTop: '40px', borderTop: '2px dashed #e5e7eb', paddingTop: '30px' }}>
+                  <h3 style={{ fontSize: '16px', color: '#374151', marginBottom: '20px', textAlign: 'center' }}>📅 Registros Pasados de esta Clase</h3>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f3f4f6', color: '#374151' }}>
+                          <th style={{ padding: '10px' }}>Fecha</th>
+                          <th style={{ padding: '10px' }}>Alumno</th>
+                          <th style={{ padding: '10px' }}>Asistencia</th>
+                          <th style={{ padding: '10px' }}>Notas</th>
+                          <th style={{ padding: '10px', textAlign: 'center' }}>Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {registrosFirebase.filter(r => r.clase === claseSeleccionada.titulo).sort((a,b) => new Date(parseFechaUniversal(b.fecha)) - new Date(parseFechaUniversal(a.fecha))).map((reg, idx) => {
+                          const nombres = Object.keys(reg.asistencia || {});
+                          return nombres.map((alum, subIdx) => {
+                            const estado = reg.asistencia?.[alum]; 
+                            const colorEstado = estado === 'asistio' ? '#10b981' : estado === 'no-asistio' ? '#ef4444' : '#f59e0b';
+                            const notaCol = (estado === 'asistio' || estado === 'reprogramo') ? formatNotasStr(reg.notas?.[alum]) : '--';
+                            return (
+                              <tr key={`${reg.id || idx}-${subIdx}`} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: editandoRegistroId === reg.id ? '#fffbeb' : 'transparent' }}>
+                                  <td style={{ padding: '10px', fontWeight: '500' }}>{reg.fecha}</td>
+                                  <td style={{ padding: '10px' }}>{alum}</td>
+                                  <td style={{ padding: '10px', color: colorEstado, fontWeight: 'bold' }}>{estado.replace('-', ' ')}</td>
+                                  <td style={{ padding: '10px' }}>{notaCol}</td>
+                                  <td style={{ padding: '10px', textAlign: 'center' }}>
+                                    {/* BOTÓN EDITAR EN PROFESOR (NUEVO) */}
+                                    <button onClick={() => {
+                                        setFechaClase(reg.fecha || ''); setHorasClase(reg.horas || ''); setAsistencia(reg.asistencia || {}); setNotas(reg.notas || {}); setObsIndividual(reg.observacionesIndividuales || {}); setObsGeneral(reg.observacionGeneral || ''); setEditandoRegistroId(reg.id);
+                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                    }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', marginRight: '5px' }} title="Editar este registro">✏️</button>
+                                  </td>
+                              </tr>
+                            )
+                          });
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
               </div>
             ) : (
               <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
